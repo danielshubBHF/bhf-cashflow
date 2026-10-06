@@ -1,0 +1,164 @@
+{% extends "base.html" %}{% from "_macros.html" import pipe, legend, reconcile, cash_card, fy_table, fy_compare, drawer, explain, basis, stage_strip, stage_cells, stage_heads, chart_help, position_strip, line_ledger, line_panel %}{% from "_editor.html" import forecast_editor %}
+{% block title %}{{ v.code }} {{ v.name }} · Project Cashflow{% endblock %}
+{% block main %}
+{% set c = v.cost %}{% set p = v.position %}
+<div class="pagebar">
+  <h2>{{ v.code }} {{ v.name }}</h2>
+  <span class="by">PM {{ v.pm or '–' }}{% if v.status %} · {{ v.status }}{% endif %}</span>
+  {% if v.unfiled %}<span class="pill warn" title="PDFs attached in Smartsheet that the filing task hasn't copied to SharePoint yet">{{ v.unfiled }} PDF{{ '' if v.unfiled == 1 else 's' }} not yet filed in SharePoint</span>{% endif %}
+  <div class="acts">
+    <button type="button" class="btn" data-open="d-forecast">Forecast &amp; payments</button>
+  </div>
+</div>
+{% if err %}<p class="error" role="alert">Not saved: {{ err }}</p>{% endif %}
+
+{{ position_strip(p, 'd-in', 'd-out', 'd-fy', 'd-margin',
+   ('= margin before BHF labour' if (p.final - v.gm)|abs < 1 else 'margin on contract value: ' ~ v.gm|money)) }}
+
+<div class="kfacts">
+  <button type="button" class="kf" data-open="d-contract"><small>Contract value</small><b>{{ v.contract|money }}</b><span>{{ v.contract_orig|money }} original + {{ v.variations|money }} variations{% if v.contract_diff %} · {{ v.contract_diff|signed }} not on an incoming line{% endif %}</span></button>
+  <button type="button" class="kf" data-open="d-in"><small>Invoiced / received</small><b>{{ v.rev.billed|money }} <i>{{ v.rev.billed|share(v.contract) }}</i></b><span>{{ v.rev.paid|money }} received ({{ v.rev.paid|share(v.contract) }} of contract)</span></button>
+  {% set d = c.expected - c.budget %}
+  <button type="button" class="kf" data-open="d-out"><small>Expected cost</small><b>{{ c.expected|money }}</b><span>vs forecast {{ c.budget|money }} · <em class="{{ 'bad' if d > 0.5 else 'good' if d < -0.5 }}">{{ d|signed }}</em>{% if c.fx %} · {{ c.fx|signed }} FX{% endif %}</span></button>
+  <button type="button" class="kf" data-open="d-margin"><small>Gross margin → net after BHF labour</small><b class="{{ 'bad' if v.gm < 0 }}">{{ v.gm|money }} <i>{{ v.gm_pct|pct }}</i> → <span class="{{ 'bad' if v.nm < 0 }}">{{ v.nm|money }}</span> <i>{{ v.nm_pct|pct }}</i></b><span>labour {{ v.labour|money }}</span></button>
+  <button type="button" class="kf" data-open="d-fy"><small>Lowest cash ahead</small><b class="{{ 'bad' if v.low and v.low.position < 0 }}">{{ v.low.position|money if v.low else '—' }}</b><span>{{ ('in ' ~ v.low.label) if v.low else '' }} · by financial year</span></button>
+</div>
+
+<div class="plists">
+  {{ line_ledger(v.ledger_lines['in'], True, v.money['in'], 'd-in', 'c-inl') }}
+  {{ line_ledger(v.ledger_lines.out, False, v.money.out, 'd-out', 'c-outl') }}
+</div>
+
+<div class="pdash">
+
+  {{ cash_card(v.curve, v.fy, v.fy_now, 'c-cash') }}
+
+  <section class="card c-costs" id="costs" aria-label="Cost lines">
+    <div class="cap">Cost lines <span class="tag">{{ v.lines_out|length }}</span><span class="more">hover a bar for its stages · click to open</span></div>
+    {{ legend() }}
+    {% set scale = (v.lines_out|map(attribute='expected')|max) if v.lines_out else 1 %}
+    {% set st = {'ordered': 'Ordered', 'to_place': 'To place', 'closed': 'Closed', 'unlinked': 'Not linked'} %}
+    <div class="cbody lrows">
+    {% for l in v.lines_out %}
+      {% if loop.first or l.status != loop.previtem.status %}<div class="lgrp">{{ st[l.status] }}</div>{% endif %}
+      <button type="button" class="lrow{{ ' unassigned' if l.unassigned }}" data-open="lp-{{ l.key }}">
+        <span class="nm">{{ l.item }}<small>{{ l.party or '—' }}{% if l.orders %} · {{ l.orders|join(', ') }}{% endif %}</small></span>
+        {{ pipe(l, scale) }}
+        <span class="v">{{ l.expected|money if l.expected|abs >= 0.5 else '—' }}{% if l.overrun > 0.5 %}<small class="neg">{{ l.overrun|money }} over{{ ' · FX' if l.fx and (l.overrun - l.fx)|abs < 1 }}</small>{% elif l.budget and l.overrun < -0.5 %}<small class="pos">{{ (-l.overrun)|money }} under</small>{% elif l.remaining > 0.5 %}<small>{{ l.remaining|money }} to place</small>{% endif %}</span>
+      </button>
+    {% else %}<p class="empty">No cost lines yet. Add them under Forecast &amp; payments.</p>{% endfor %}
+    </div>
+  </section>
+
+  <section class="card c-attn" id="attention" aria-label="Needs attention">
+    <div class="cap">Needs attention {% if v.flags %}<span class="tag warn">{{ v.flags|length }}</span>{% endif %}</div>
+    <div class="cbody">
+    {% if v.flags %}
+    <ul class="att">
+    {% for kind, text, t in v.flags %}
+      <li class="{{ kind }}"><div><span class="k">{{ {'link': 'Unlinked', 'late': 'Late', 'over': 'Over', 'terms': 'Terms', 'overdue': 'Overdue'}.get(kind, kind) }}</span>{{ text }}
+        {% if kind == 'link' and t %}
+        <form method="post" action="/link" class="linkform">
+          <input type="hidden" name="code" value="{{ v.code }}"><input type="hidden" name="netsuite_id" value="{{ t['NetSuite ID'] }}">
+          <label>Add to <select name="forecast">{% for f in forecast_items %}<option>{{ f }}</option>{% endfor %}</select></label>
+          <button>Link</button>
+        </form>
+        {% endif %}</div>
+      </li>
+    {% endfor %}
+    </ul>
+    {% else %}<p class="empty">Nothing needs attention.</p>{% endif %}
+    </div>
+  </section>
+</div>
+<div class="foot"><b>Basis:</b> AUD ex GST. Received / paid = NetSuite paid dates. Still to come = unpaid bills and invoices (by due date), unbilled milestones and open PO balances (by milestone or line date), and forecast not yet ordered (by the line's expected date). Anything still to come that was due before today is marked overdue. Final position = everything in less everything out.</div>
+{% endblock %}
+
+{% block drawers %}{% set c = v.cost %}{% set p = v.position %}
+{% call drawer('d-forecast', 'Forecast & payments', v.code ~ ' · click a line to edit it and its payment stages, and see its NetSuite documents. Paid, billed and on order come from NetSuite.', size='wide') %}
+  <div id="forecast"></div><div id="payments"></div>
+  {{ forecast_editor(v.code, v.blocks, forecast_items) }}
+{% endcall %}
+
+{% call drawer('d-in', 'Incoming — customer', v.code ~ ' · invoiced, received and still to come', size='mid') %}
+  {{ explain('What the customer has paid us, what is invoiced but not yet paid, what is still to invoice under the contract, and any incoming forecast with no customer PO yet.',
+     'Expected in = received + invoiced, not received + contract, not invoiced + forecast, not ordered') }}
+  <div class="bignum">{{ v.rev.expected|money }}<span class="u">expected in · {{ v.rev.paid|money }} received · {{ (v.rev.expected - v.rev.paid)|money }} still to receive</span></div>
+  <table class="tbl"><thead><tr><th>Incoming line</th>{{ stage_heads(True) }}</tr></thead><tbody>
+  {% for l in v.lines_in %}<tr><td>{{ l.item }}<small>{{ l.party }}{% if l.refs %} · {{ l.refs|join(', ') }}{% endif %}</small></td>{{ stage_cells(l.stages) }}</tr>{% endfor %}
+  <tr class="tot"><td>Total</td>{{ stage_cells(v.money['in']) }}</tr></tbody></table>
+  <h3>Invoices</h3>
+  <table class="tbl"><thead><tr><th>Invoice</th><th>Date</th><th>Due</th><th>Amount</th><th>Received</th></tr></thead><tbody>
+  {% for r in v.ledger['in'] if r.doc %}<tr><td>{{ r.doc['Doc #'] }}<small>{{ r.line }} — {{ r.label }}</small></td><td>{{ r.doc['Date']|mdate }}</td><td>{{ r.doc['Due Date']|mdate if r.doc['Due Date'] else '—' }}</td><td class="num">{{ r.amount|money }}</td><td>{% if r.done %}{{ r.date|mdate }}{% else %}<span class="chip {{ 'late' if r.overdue else 'billed' }}">{{ 'overdue' if r.overdue else 'not yet' }}</span>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="5" class="muted">No invoices yet.</td></tr>{% endfor %}</tbody></table>
+  {{ basis('Invoices and receipts come from NetSuite (credit memos count negative; received = invoice paid date). Contract, not invoiced = unbilled customer milestones, or the line amount less invoices when there are no milestones. Edit lines and milestones under Forecast & payments.') }}
+{% endcall %}
+
+{% call drawer('d-out', 'Outgoing — suppliers & costs', v.code ~ ' · expected cost by line and money stage', size='wide') %}
+  {{ explain('Everything the job is expected to cost, split by where the money is: already paid, billed but not paid, on order but not billed yet, and forecast that has no PO yet.',
+     'Expected cost = paid + billed, not paid + on order, not billed + forecast, not ordered. A line is worth the larger of its forecast and its POs / bills, unless it is closed.') }}
+  {% set d = c.expected - c.budget %}
+  <div class="bignum">{{ c.expected|money }}<span class="u">expected cost · forecast {{ c.budget|money }} · {{ d|signed }} vs forecast{% if c.fx %}, of which {{ c.fx|signed }} exchange rate{% endif %}</span></div>
+  <table class="tbl"><thead><tr><th>Cost line</th><th>Forecast</th>{{ stage_heads() }}<th>vs forecast</th></tr></thead><tbody>
+  {% for l in v.lines_out %}<tr><td>{{ l.item }}<small>{{ l.party or '—' }}{% if l.orders %} · {{ l.orders|join(', ') }}{% endif %}</small></td><td class="num muted">{{ l.budget|money if l.budget else '—' }}</td>{{ stage_cells(l.stages) }}<td class="num {{ 'neg' if l.overrun > 0.5 else 'ok' if l.overrun < -0.5 }}">{{ l.overrun|signed if l.budget and l.overrun|abs > 0.5 else '—' }}{% if l.fx and (l.overrun - l.fx)|abs < 1 and l.overrun|abs > 0.5 %} <span class="tag fx">FX</span>{% endif %}</td></tr>{% endfor %}
+  <tr class="tot"><td>Total</td><td>{{ c.budget|money }}</td>{{ stage_cells(v.money.out) }}<td>{{ d|signed }}</td></tr></tbody></table>
+  <h3>By cost type</h3>
+  <div class="mixbody" style="flex:none">
+    <div class="pie" style="background:{{ pie(v.by_type.values()|list) }}" role="img" aria-label="Expected cost by type"></div>
+    <div class="dleg">{% set tt = v.by_type.values()|sum %}{% for k, val in v.by_type.items() if val > 0 %}<div class="li"><span class="sw" style="background:{{ pal[loop.index0 % pal|length] }}"></span><span class="nm">{{ k }}</span><span class="vl">{{ val|money }} · {{ val|share(tt) }}</span></div>{% endfor %}</div>
+  </div>
+  {{ basis('POs, bills, credits and payments come from NetSuite; forecasts from the Forecasts sheet. Foreign-currency POs are at the PO date rate; billed milestones at the bill date rate, so the difference shows as FX. A PO closed in NetSuite counts only what was billed on it.') }}
+{% endcall %}
+
+{% call drawer('d-margin', 'Margin and final position', v.code ~ ' · what the job makes', size='mid') %}
+  {{ explain('What the job is expected to make: the contract less everything it is expected to cost, then less the BHF labour budgeted for it.',
+     'Gross margin = contract value − expected cost.   Net after BHF labour = gross margin − internal labour.   Final cash position = everything in − everything out.') }}
+  <table class="tbl"><tbody>
+    <tr><td>Contract value <small>Projects sheet</small></td><td class="num">{{ v.contract|money }}</td><td></td></tr>
+    <tr><td>− Expected cost</td><td class="num">{{ c.expected|money }}</td><td class="muted">{{ c.expected|share(v.contract) }}</td></tr>
+    <tr class="tot"><td>Gross margin</td><td>{{ v.gm|money }}</td><td>{{ v.gm_pct|pct }}</td></tr>
+    <tr><td>− BHF labour <small>Internal Labour, Projects sheet</small></td><td class="num">{{ v.labour|money }}</td><td></td></tr>
+    <tr class="tot"><td>Net after BHF labour</td><td>{{ v.nm|money }}</td><td>{{ v.nm_pct|pct }}</td></tr>
+  </tbody></table>
+  <h3>Final cash position</h3>
+  <table class="tbl"><tbody>
+    <tr><td>Expected in <small>all incoming lines</small></td><td class="num">{{ v.rev.expected|money }}</td></tr>
+    <tr><td>− Expected out</td><td class="num">{{ c.expected|money }}</td></tr>
+    <tr class="tot"><td>Final position</td><td>{{ p.final|money }}</td></tr>
+  </tbody></table>
+  {% if (p.final - v.gm)|abs >= 1 %}<div class="note"><b>Why they differ.</b> The final position uses the incoming lines ({{ v.rev.expected|money }}); margin uses the Contract Value ({{ v.contract|money }}). The {{ (v.contract - v.rev.expected)|signed }} difference isn't on an incoming line yet.</div>{% endif %}
+  {{ basis('Expected cost and expected in as on the Incoming and Outgoing drawers. BHF labour is not in the cashflow; it is taken off for the net margin only.') }}
+{% endcall %}
+
+{% call drawer('d-contract', 'Contract value', v.code ~ ' · from the Projects sheet, split by the incoming forecast lines') %}
+  {{ explain('What the customer has agreed to pay for the job, including approved variations.', 'Contract value = original contract + variations (Contract Value on the Projects sheet)') }}
+  <div class="bignum">{{ v.contract|money }}<span class="u">AUD ex GST</span></div>
+  <table class="tbl">
+    <thead><tr><th>Incoming line</th><th>Type</th><th>Expected</th><th>Invoiced</th><th>Received</th></tr></thead>
+    <tbody>
+    {% for l in v.lines_in %}<tr class="{{ 'sub' if l.unassigned }}"><td>{{ l.item }}<small>{{ l.party }}{% if l.refs %} · {{ l.refs|join(', ') }}{% endif %}</small></td><td>{{ l.type }}</td><td class="num">{{ l.expected|money }}</td><td class="num">{{ l.billed|money }}</td><td class="num">{{ l.paid|money }}</td></tr>{% endfor %}
+    <tr class="sub"><td>Original contract</td><td></td><td class="num">{{ v.contract_orig|money }}</td><td></td><td></td></tr>
+    <tr class="sub"><td>Variations</td><td></td><td class="num">{{ v.variations|money }}</td><td></td><td></td></tr>
+    <tr class="tot"><td>Contract value (Projects sheet)</td><td></td><td>{{ v.contract|money }}</td><td>{{ v.rev.billed|money }}</td><td>{{ v.rev.paid|money }}</td></tr>
+    </tbody>
+  </table>
+  <div class="note"><b>How it's split.</b> Incoming lines with Cost Type “Variation” are variations; every other incoming line is the original contract.
+    {% if v.contract_diff %}The Projects sheet's Contract Value differs from the incoming lines by <b>{{ v.contract_diff|signed }}</b>; the dashboard uses the Contract Value for margins and doesn't guess where the difference belongs.{% else %}They add up to the Contract Value on the Projects sheet.{% endif %} All figures AUD ex GST.</div>
+{% endcall %}
+
+{% call drawer('d-fy', 'Cash now and by financial year', v.code ~ ' · Australian FY, 1 Jul to 30 Jun · AUD ex GST', size='mid') %}
+  {{ explain('The cash the job holds today: everything the customer has paid us less everything we have paid out on it.', 'Cash now = received − paid (NetSuite paid dates, up to today)') }}
+  <div class="bignum">{{ p.now|money }}<span class="u">{{ p.in_done|money }} received − {{ p.out_done|money }} paid{% if v.low %} · lowest ahead {{ v.low.position|money }} in {{ v.low.label }}{% endif %}</span></div>
+  <h3>This FY vs last FY</h3>
+  {{ fy_compare(v.fy, v.fy_now) }}
+  <h3>Every year</h3>
+  {{ fy_table(v.fy, v.fy_now) }}
+  <div class="note"><b>Actuals vs projection.</b> Received and paid are NetSuite paid dates, so past years are actuals only. Expected in / out is what's still to come in the current and later years. Amounts with no expected date (“Undated”) belong to no year and are left out here. All figures AUD ex GST.</div>
+{% endcall %}
+
+{% for g in v.ledger_lines['in'] %}{{ line_panel(g, True) }}{% endfor %}
+{% for g in v.ledger_lines.out %}{{ line_panel(g, False) }}{% endfor %}
+
+{% call drawer('d-chart', 'How to read the cash chart', v.code, size='mid') %}{{ chart_help() }}{% endcall %}
+{% endblock %}
+{% block scripts %}<script>window.CURVE = {{ v.curve|tojson }};</script><script src="/static/chart.js"></script><script src="/static/editor.js"></script>{% endblock %}

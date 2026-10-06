@@ -1,0 +1,45 @@
+# Render blueprint: New > Blueprint > point at this repo. Fill the env vars marked sync: false.
+services:
+  - type: web
+    name: bhf-cashflow
+    runtime: python
+    plan: starter
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn bhf.web:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - fromGroup: bhf-cashflow
+      - key: SESSION_SECRET
+        generateValue: true
+  - type: cron
+    name: bhf-cashflow-sync
+    runtime: python
+    plan: starter
+    region: singapore
+    schedule: "0 20,2 * * 1-5"      # 07:00 and 13:00 Melbourne (AEDT). Use "0 21,3" in AEST.
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m bhf.sync
+    envVars:
+      - fromGroup: bhf-cashflow
+envVarGroups:
+  - name: bhf-cashflow
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: SMARTSHEET_TOKEN
+        sync: false
+      - key: NS_ACCOUNT
+        value: "5142660"
+      - key: NS_CONSUMER_KEY
+        sync: false
+      - key: NS_CONSUMER_SECRET
+        sync: false
+      - key: NS_TOKEN_ID
+        sync: false
+      - key: NS_TOKEN_SECRET
+        sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

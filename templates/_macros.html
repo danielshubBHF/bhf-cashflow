@@ -1,0 +1,291 @@
+{% macro pipe(l, scale, inn=False) -%}
+{% set s = scale if scale > 0 else 1 %}
+{% set billed_unpaid = (l.billed - l.paid) if l.billed > l.paid else 0 %}
+{% set tip = ('Received ' if inn else 'Paid ') ~ l.paid|money ~ ' · ' ~ ('invoiced, not received ' if inn else 'billed, not paid ') ~ billed_unpaid|money ~ ' · ' ~ ('contract, not invoiced ' if inn else 'on order, not billed ') ~ l.open_commit|money ~ ' · forecast, not ordered ' ~ l.remaining|money ~ (' · original forecast ' ~ l.budget|money if l.budget else '') %}
+<div class="pipe" role="img" aria-label="{{ tip }}" title="{{ tip }}">
+  <i class="paid" style="width:{{ [l.paid / s * 100, 100]|min }}%"></i><i class="billed" style="width:{{ billed_unpaid / s * 100 }}%"></i><i class="po" style="width:{{ l.open_commit / s * 100 }}%"></i><i class="fc" style="width:{{ l.remaining / s * 100 }}%"></i>
+  {% if l.budget and l.budget <= s %}<b class="budget" style="left:{{ [l.budget / s * 100, 99.5]|min }}%"></b>{% endif %}
+</div>
+{%- endmacro %}
+{% macro legend() -%}
+<p class="legend"><span class="paid">Paid</span><span class="billed">Billed, not paid</span><span class="po">On order, not billed</span><span class="fc">Forecast, not ordered</span><span class="budget">Original forecast</span></p>
+{%- endmacro %}
+
+{# How a line's expected total is built up from the forecast, so every difference has a named cause.
+   expected = PO value + billing difference + forecast not yet on a PO. #}
+{% macro reconcile(l) -%}
+{% set po_diff = l.committed - l.budget %}
+<table class="recon">
+  <caption>How the numbers add up</caption>
+  <tbody>
+  <tr><th>Your forecast</th><td class="num">{{ l.budget|money }}</td><td></td></tr>
+  <tr><th>{{ 'Customer PO / contract value' if l.direction == 'In' else 'On PO in NetSuite' }}{% if l.foreign %}<small>at the exchange rate on the PO date</small>{% endif %}</th>
+    <td class="num">{{ l.committed|money }}</td>
+    <td>{% if not l.committed %}<span class="tag">no PO yet</span>
+        {% elif po_diff|abs < 0.5 %}<span class="tag ok">matches forecast</span>
+        {% else %}<span class="tag {{ 'bad' if po_diff > 0 and l.direction == 'Out' else 'good' if l.direction == 'Out' else '' }}">{{ po_diff|abs|money }} {{ 'above' if po_diff > 0 else 'below' }} forecast</span>{% endif %}</td></tr>
+  {% if l.bill_diff|abs >= 0.5 %}
+  <tr><th>{% if l.fx %}Exchange-rate difference{% elif not l.committed %}Billed without a PO{% else %}Billing differs from PO value{% endif %}</th>
+    <td class="num">{{ '+' if l.bill_diff > 0 else '' }}{{ l.bill_diff|money }}</td>
+    <td>{% if l.fx %}<span class="tag fx">FX</span> Bills are converted at the rate on the bill date; the PO used the rate on the PO date.
+          {% for t in l.foreign %}<small>{{ t['Doc #'] }}: {{ t['Currency Amount'] }} = {{ (t['Amount'] or 0)|float|money }}</small>{% endfor %}
+        {% elif not l.committed %}<span class="tag">no PO</span> Bills or expenses linked to this line without a PO.
+        {% else %}<span class="tag">check</span> Billed or scheduled amounts don't match the PO total.{% endif %}</td></tr>
+  {% endif %}
+  {% if l.remaining >= 0.5 %}
+  <tr><th>Forecast not yet on a PO</th><td class="num">+{{ l.remaining|money }}</td><td><span class="tag">to place</span> Still expected; tick Closed if it won't be spent.</td></tr>
+  {% elif l.closed and l.committed < l.budget - 0.5 %}
+  <tr><th>Line closed</th><td class="num">$0</td><td><span class="tag good">saving</span> No more spend expected beyond the POs.</td></tr>
+  {% endif %}
+  <tr class="total"><th>Expected total</th><td class="num">{{ l.expected|money }}</td>
+    <td>{% if l.overrun > 0.5 %}<span class="tag {{ 'fx' if l.fx and (l.overrun - l.fx)|abs < 1 else 'bad' }}">{{ l.overrun|money }} over forecast{{ ', all exchange rate' if l.fx and (l.overrun - l.fx)|abs < 1 }}</span>
+        {% elif l.overrun < -0.5 %}<span class="tag good">{{ (-l.overrun)|money }} under forecast{{ ', all exchange rate' if l.fx and (l.overrun - l.fx)|abs < 1 }}</span>
+        {% else %}<span class="tag ok">on forecast</span>{% endif %}</td></tr>
+  </tbody>
+</table>
+<p class="progress">Progress: billed {{ l.billed|money }} · paid {{ l.paid|money }} · still to bill on PO {{ l.open_commit|money }}{% if l.notes %}<br>{{ l.notes }}{% endif %}</p>
+{%- endmacro %}
+
+{# Cash by month: chart + FY toggle. static/chart.js reads data-curve and draws into the canvas. #}
+{% macro cash_card(curve, fys, fy_now, cls, title='Cash by month', more='', fy_note='') -%}
+{% set fy_names = fys|map(attribute='fy')|list %}
+{% set pick = fy_now if fy_now in fy_names else 'All' %}
+<section class="card {{ cls }}" aria-label="{{ title }}">
+  <div class="cap">{{ title }} <span class="tag">AUD ex GST</span>
+    <span class="more">{{ more }}<button type="button" class="lnk" data-open="d-chart">how to read this</button>
+      {% if fys %}<span class="seg sm fyseg" role="group" aria-label="Financial year">{% for f in fys %}<button type="button" data-fy="{{ f.fy }}" class="{{ 'on' if f.fy == pick }}" title="{{ f.fy }}: Jul {{ 2000 + f.fy[2:]|int - 1 }} to Jun {{ 2000 + f.fy[2:]|int }}{% if f.from %} · data from {{ f.from }}{% endif %}">{{ f.fy }}</button>{% endfor %}<button type="button" data-fy="All" class="{{ 'on' if pick == 'All' }}">All</button></span>{% endif %}
+    </span></div>
+  <div class="chartwrap"><canvas class="cashchart" data-pick="{{ pick }}" role="img" aria-label="Cash in and out by month with the running cash position"></canvas></div>
+  <div class="tleg">
+    <span><i style="background:#128a55"></i>Received</span><span><i style="background:rgba(18,138,85,.3)"></i>Expected in</span>
+    <span><i style="background:#0E2A47"></i>Paid out</span><span><i style="background:#9fb2c0"></i>Expected out</span>
+    <span><i class="hatch"></i>Overdue (past due, counted in this month)</span>
+    <span><i class="ln" style="background:#00A4C7"></i>Cash position (actual)</span><span><i class="dash"></i>Projected position</span>
+    <span><i class="past"></i>Past months: actuals only</span>
+  </div>
+  <div class="fyline" data-fyline>{% for f in fys %}<span data-fy="{{ f.fy }}"{% if f.fy != pick %} hidden{% endif %}><b>{{ f.fy }}</b> = Jul {{ 2000 + f.fy[2:]|int - 1 }} to Jun {{ 2000 + f.fy[2:]|int }}{% if f.from %} · <b>part year: data from {{ f.from }}</b>{% endif %}{% if f.to %} · data to {{ f.to }}{% endif %} · opening {{ f.opening|money }}, closing {{ f.closing|money }}</span>{% endfor %}{% if fy_note %}<span class="fynote"> · {{ fy_note }}</span>{% endif %}<span data-fy="All"{% if pick != 'All' %} hidden{% endif %}>All months{% if curve and curve[-1].month == 'Undated' %}, plus <b>Undated</b>: amounts with no expected date yet{% endif %}</span></div>
+</section>
+{%- endmacro %}
+
+{# Financial-year totals. Past months are actuals only; the current FY is actual to date + still expected. #}
+{% macro fy_table(fys, fy_now) -%}
+{% set names = fys|map(attribute='fy')|list %}
+<table class="tbl">
+  <thead><tr><th>Financial year</th><th>Received</th><th>Paid</th><th>Net actual</th><th>Expected in</th><th>Expected out</th><th>Closing position</th></tr></thead>
+  <tbody>
+  {% for f in fys %}
+  <tr{% if f.fy == fy_now %} style="background:#f2fafc"{% endif %}>
+    <td><b>{{ f.fy }}</b>{% if f.fy == fy_now %} <span class="pill">this FY</span>{% endif %}
+      <small>{% if f.from %}part year · data from {{ f.from }}{% elif f.to %}data to {{ f.to }}{% else %}Jul–Jun{% endif %}{% if f.fy == fy_now %} · actual to date + projected{% elif f.in_expected or f.out_expected %} · projected{% else %} · actuals{% endif %}</small></td>
+    <td class="num">{{ f.received|money }}</td><td class="num">{{ f.paid|money }}</td>
+    <td class="num {{ 'neg' if f.net_actual < 0 }}">{{ f.net_actual|money }}</td>
+    <td class="num muted">{{ f.in_expected|money if f.in_expected else '–' }}</td><td class="num muted">{{ f.out_expected|money if f.out_expected else '–' }}</td>
+    <td class="num {{ 'neg' if f.closing < 0 }}">{{ f.closing|money }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{%- endmacro %}
+
+{# This FY vs last FY: actuals side by side, plus where this FY is heading. #}
+{% macro fy_compare(fys, fy_now) -%}
+{% set cur = (fys|selectattr('fy', 'equalto', fy_now)|list|first) if fy_now else None %}
+{% set prev_name = 'FY%02d'|format(fy_now[2:]|int - 1) if fy_now else '' %}
+{% set prev = (fys|selectattr('fy', 'equalto', prev_name)|list|first) %}
+<table class="tbl">
+  <thead><tr><th></th><th>{{ prev_name }}{% if prev and prev.from %}*{% endif %}<small>actual</small></th><th>{{ fy_now }}<small>actual to date</small></th><th>{{ fy_now }}<small>full year, projected</small></th></tr></thead>
+  <tbody>
+  {% for lab, a, e in [('Received', 'received', 'in_expected'), ('Paid', 'paid', 'out_expected')] %}
+  <tr><td>{{ lab }}</td><td class="num">{{ prev[a]|money if prev else '–' }}</td><td class="num">{{ cur[a]|money if cur else '–' }}</td><td class="num muted">{{ (cur[a] + cur[e])|money if cur else '–' }}</td></tr>
+  {% endfor %}
+  <tr class="tot"><td>Net</td><td>{{ prev.net_actual|money if prev else '–' }}</td><td>{{ cur.net_actual|money if cur else '–' }}</td><td>{{ cur.net|money if cur else '–' }}</td></tr>
+  </tbody>
+</table>
+{% if prev and prev.from %}<p class="hint" style="margin:4px 0 0">* {{ prev_name }} is a part year: data from {{ prev.from }} only (earlier history isn't loaded yet).</p>{% elif not prev %}<p class="hint" style="margin:4px 0 0">No {{ prev_name }} data loaded.</p>{% endif %}
+{%- endmacro %}
+
+{# A drawer: rendered in place; dash.js turns it into an overlay. Without JS it's a section at the bottom. #}
+{% macro drawer(id, title, sub='', size='') -%}
+<div class="ovl" id="{{ id }}" role="dialog" aria-modal="true" aria-labelledby="{{ id }}-t">
+  <div class="sheet {{ size }}">
+    <div class="sheet-h"><div><div class="t" id="{{ id }}-t">{{ title }}</div>{% if sub %}<div class="s">{{ sub }}</div>{% endif %}</div>
+      <button type="button" class="x" data-close aria-label="Close">✕</button></div>
+    <div class="sheet-b">{{ caller() }}</div>
+  </div>
+</div>
+{%- endmacro %}
+
+
+{# What a number is, how it's worked out, and what it rests on: the top of every KPI drawer. #}
+{% macro explain(what, formula, basis) -%}
+<p class="what">{{ what }}</p>
+<div class="formula">{{ formula }}</div>
+{%- endmacro %}
+{% macro basis(text) -%}
+<div class="note"><b>Basis.</b> {{ text }} All figures AUD ex GST.</div>
+{%- endmacro %}
+
+{# The four money stages as a compact strip: "where the money is". #}
+{% macro stage_strip(m, inn=False, open='') -%}
+{% set tot = m.expected if m.expected > 0 else 1 %}
+<button type="button" class="sstrip" data-open="{{ open }}" title="Click for the breakdown">
+  <span class="sbar"><i class="paid" style="width:{{ [m.paid / tot * 100, 0]|max }}%"></i><i class="billed" style="width:{{ [m.unpaid / tot * 100, 0]|max }}%"></i><i class="po" style="width:{{ [m.on_order / tot * 100, 0]|max }}%"></i><i class="fc" style="width:{{ [m.to_place / tot * 100, 0]|max }}%"></i></span>
+  <span class="sfig"><i class="paid"></i>{{ 'Received' if inn else 'Paid' }} <b>{{ m.paid|money }}</b></span>
+  <span class="sfig"><i class="billed"></i>{{ 'Invoiced, not received' if inn else 'Billed, not paid' }} <b>{{ m.unpaid|money if m.unpaid|abs >= 0.5 else '—' }}</b></span>
+  <span class="sfig"><i class="po"></i>{{ 'To invoice' if inn else 'On order' }} <b>{{ m.on_order|money if m.on_order >= 0.5 else '—' }}</b></span>
+  <span class="sfig"><i class="fc"></i>{{ 'Forecast' if inn else 'To place' }} <b>{{ m.to_place|money if m.to_place >= 0.5 else '—' }}</b></span>
+</button>
+{%- endmacro %}
+
+{# Stage columns as a table row (drawers). #}
+{% macro stage_cells(m) -%}
+<td class="num">{{ m.paid|money if m.paid|abs >= 0.5 else '—' }}</td><td class="num">{{ m.unpaid|money if m.unpaid|abs >= 0.5 else '—' }}</td><td class="num">{{ m.on_order|money if m.on_order >= 0.5 else '—' }}</td><td class="num">{{ m.to_place|money if m.to_place >= 0.5 else '—' }}</td><td class="num"><b>{{ m.expected|money }}</b></td>
+{%- endmacro %}
+{% macro stage_heads(inn=False) -%}
+<th>{{ 'Received' if inn else 'Paid' }}</th><th>{{ 'Invoiced, not received' if inn else 'Billed, not paid' }}</th><th>{{ 'Contract, not invoiced' if inn else 'On order, not billed' }}</th><th>Forecast, not ordered</th><th>= Expected</th>
+{%- endmacro %}
+
+{# How to read the cash chart. #}
+{% macro chart_help(live_note='') -%}
+<p class="what">Each month shows money coming in above the line and going out below it, and a line for how much cash the job holds.</p>
+<table class="tbl"><tbody>
+<tr><td><span class="sw" style="background:#128a55"></span> Received / <span class="sw" style="background:rgba(18,138,85,.3)"></span> expected in</td><td style="text-align:left;white-space:normal">Customer payments: solid once received (NetSuite paid date), light while still to come (invoice due date, milestone date or forecast date).</td></tr>
+<tr><td><span class="sw" style="background:#0E2A47"></span> Paid / <span class="sw" style="background:#9fb2c0"></span> expected out</td><td style="text-align:left;white-space:normal">Supplier payments: solid once paid, light while still to come (bill due date, PO milestone date, or the forecast line's expected date).</td></tr>
+<tr><td><span class="sw hatch"></span> Overdue</td><td style="text-align:left;white-space:normal">Still to come but dated before today. It can only happen from now on, so it is counted in the current month, never in a past one. Past months show actuals only.</td></tr>
+<tr><td>Solid line</td><td style="text-align:left;white-space:normal">Cash position (actual): everything received less everything paid, month by month, up to today.</td></tr>
+<tr><td>Dashed line</td><td style="text-align:left;white-space:normal">Projected position: carries on from today adding what's still expected in and out. Its last point is the final position (= the job's margin before BHF labour, if the contract is all on incoming lines).</td></tr>
+<tr><td>Undated</td><td style="text-align:left;white-space:normal">Amounts with no expected date yet, shown at the end under “All”.</td></tr>
+</tbody></table>
+<div class="note"><b>Reading a month.</b> Hover a month: opening position + received + expected in − paid − expected out = closing position. The FY buttons show one Australian financial year (1 Jul to 30 Jun); a year still opens at the real position carried from before it. {{ live_note }}</div>
+{%- endmacro %}
+
+{# The cashflow statement at the top of a page. p = position dict; ids name the drill drawers. #}
+{% macro position_strip(p, d_in, d_out, d_now, d_final, final_note) -%}
+<div class="posline" aria-label="Cashflow position">
+  <button type="button" class="pf" data-open="{{ d_in }}"><small>Received</small><b>{{ p.in_done|money }}</b></button>
+  <span class="op">−</span>
+  <button type="button" class="pf" data-open="{{ d_out }}"><small>Paid</small><b>{{ p.out_done|money }}</b></button>
+  <span class="op">=</span>
+  <button type="button" class="pf now" data-open="{{ d_now }}"><small>Cash now</small><b class="{{ 'bad' if p.now < 0 }}">{{ p.now|money }}</b></button>
+  <span class="gap"></span>
+  <span class="op">+</span>
+  <button type="button" class="pf" data-open="{{ d_in }}"><small>Still to receive{% if p.in_overdue >= 0.5 %} <em class="bad">{{ p.in_overdue|money }} overdue</em>{% endif %}</small><b>{{ p.in_tocome|money }}</b></button>
+  <span class="op">−</span>
+  <button type="button" class="pf" data-open="{{ d_out }}"><small>Still to pay{% if p.out_overdue >= 0.5 %} <em class="bad">{{ p.out_overdue|money }} overdue</em>{% endif %}</small><b>{{ p.out_tocome|money }}</b></button>
+  <span class="op">=</span>
+  <button type="button" class="pf final" data-open="{{ d_final }}"><small>Final position</small><b class="{{ 'bad' if p.final < 0 }}">{{ p.final|money }}</b><em>{{ final_note }}</em></button>
+</div>
+{%- endmacro %}
+
+{# Incoming or outgoing, payment by payment: done (muted) then to come (bold), with subtotals and a total. #}
+{% macro ledger_card(rows, inn, money, cls, d_stage) -%}
+{% set chips = {'paid': 'Received' if inn else 'Paid', 'billed': 'Invoiced' if inn else 'Billed', 'order': 'To invoice' if inn else 'On order', 'forecast': 'Forecast'} %}
+{% set done = rows|selectattr('done')|list %}{% set tocome = rows|rejectattr('done')|list %}
+{% set sdone = done|sum(attribute='amount') %}{% set scome = tocome|sum(attribute='amount') %}
+<section class="card {{ cls }}" aria-label="{{ 'Incoming' if inn else 'Outgoing' }}">
+  <div class="cap"><span class="dir {{ 'in' if inn else 'out' }}"></span>{{ 'Incoming — customer' if inn else 'Outgoing — suppliers & costs' }}
+    <span class="more">click a row to open its line</span></div>
+  {{ stage_strip(money, inn, d_stage) }}
+  <div class="cbody lg">
+    <div class="lg-g"><span>{{ 'Received' if inn else 'Paid' }} <small>{{ done|length }}</small></span><b>{{ sdone|money }}</b></div>
+    {% for r in done %}{{ _lrow(r, chips) }}{% else %}<p class="empty">Nothing {{ 'received' if inn else 'paid' }} yet.</p>{% endfor %}
+    <div class="lg-g come"><span>To come <small>{{ tocome|length }}</small></span><b>{{ scome|money }}</b></div>
+    {% for r in tocome %}{{ _lrow(r, chips) }}{% else %}<p class="empty">Nothing still to come.</p>{% endfor %}
+  </div>
+  <div class="lg-tot"><span>Total {{ 'in' if inn else 'out' }} = {{ 'received' if inn else 'paid' }} + to come</span><b>{{ (sdone + scome)|money }}</b></div>
+</section>
+{%- endmacro %}
+{% macro _lrow(r, chips) -%}
+<button type="button" class="lg-r{{ ' done' if r.done }}{{ ' late' if r.overdue }}" data-open="d-forecast" data-line="{{ r.key }}">
+  <span class="d">{{ r.date|mdate if r.date else 'No date' }}</span>
+  <span class="it"><b>{{ r.line }}</b> — {{ r.label }}<small>{{ r.party or '—' }}</small></span>
+  <span class="st"><span class="chip {{ r.kind }}">{{ chips[r.kind] }}</span>{% if r.overdue %}<span class="chip late">overdue</span>{% endif %}</span>
+  <span class="a">{{ r.amount|money }}</span>
+</button>
+{%- endmacro %}
+
+
+{# Incoming / outgoing grouped by forecast line, like the Smartsheet cashflow sheets: a header row per line,
+   its payments as child rows. Filter chips (All · To come · Done · Overdue) are wired in dash.js. #}
+{% macro line_ledger(groups, inn, money, d_stage, cls) -%}
+{% set side = 'in' if inn else 'out' %}
+{% set chips = {'paid': 'Received' if inn else 'Paid', 'billed': 'Invoiced' if inn else 'Billed', 'order': 'To invoice' if inn else 'On order', 'forecast': 'Forecast'} %}
+{% set scale = [groups|map(attribute='line')|map(attribute='expected')|max if groups else 1, 1]|max %}
+<section class="card llist {{ cls }}" data-list="{{ side }}" aria-label="{{ 'Incoming' if inn else 'Outgoing' }}">
+  <div class="ll-h">
+    <h3><span class="dir {{ side }}"></span>{{ 'Incoming — customer' if inn else 'Outgoing — suppliers & costs' }}</h3>
+    <div class="seg fchips" role="group" aria-label="Show">{% for k, lab in (('all', 'All'), ('tocome', 'To come'), ('done', 'Received' if inn else 'Paid'), ('overdue', 'Overdue')) %}<button type="button" data-filter="{{ k }}" class="{{ 'on' if k == 'all' }}">{{ lab }}</button>{% endfor %}</div>
+  </div>
+  {{ stage_strip(money, inn, d_stage) }}
+  <div class="ll-body">
+  {% for g in groups %}{% set l = g.line %}
+    <div class="lg-line{{ ' unlinked' if l.unassigned }}" data-key="{{ g.key }}">
+      <button type="button" class="lh" data-open="lp-{{ g.key }}">
+        <span class="lh-t"><b>{{ l.item if not l.unassigned else 'Not linked to a line' }}</b>{% if l.type == 'Variation' and inn %} <span class="tag fx">Variation</span>{% endif %}
+          <small>{{ l.party or '—' }}{% if l.refs %} · {{ l.refs|join(', ') }}{% endif %}{% if not inn and not l.unassigned %} · {{ l.type }}{% endif %}</small></span>
+        <span class="lh-p">{{ pipe(l, scale, inn) }}</span>
+        <span class="lh-s"><span class="chip st-{{ l.status }}">{{ {'ordered': ('Contracted' if inn else 'Ordered'), 'to_place': 'To place', 'closed': 'Closed', 'unlinked': 'Not linked'}[l.status] }}</span>{% if g.overdue %}<span class="chip late">overdue</span>{% endif %}</span>
+        <span class="lh-a">{{ l.expected|money }}<small>{% if g.tocome >= 0.5 %}{{ g.tocome|money }} to come{% elif l.expected|abs < 0.5 %}nothing expected{% else %}all {{ 'received' if inn else 'paid' }}{% endif %}</small></span>
+      </button>
+      {% for r in g.rows %}
+      <button type="button" class="pr{{ ' done' if r.done }}{{ ' late' if r.overdue }}" data-open="lp-{{ g.key }}" data-state="{{ 'done' if r.done else 'tocome' }}{{ ' overdue' if r.overdue }}">
+        <span class="pr-l">{{ r.label }}{% if r.party and r.party != l.party %}<small>{{ r.party }}</small>{% endif %}</span>
+        <span class="pr-d">{{ r.date|mdate if r.date else 'No date' }}</span>
+        <span class="pr-s"><span class="chip {{ r.kind }}">{{ chips[r.kind] }}</span>{% if r.overdue %}<span class="chip late">overdue</span>{% endif %}</span>
+        <span class="pr-a">{{ r.amount|money }}</span>
+      </button>
+      {% else %}<div class="pr empty-r">Nothing expected on this line.</div>{% endfor %}
+    </div>
+  {% else %}<p class="empty">No {{ 'incoming' if inn else 'cost' }} lines yet.</p>{% endfor %}
+  <p class="empty ll-none" hidden>Nothing to show for this filter.</p>
+  </div>
+  <div class="ll-tot">
+    <span>{{ 'Received' if inn else 'Paid' }} <b>{{ (groups|sum(attribute='done'))|money }}</b></span>
+    <span>+ to come <b>{{ (groups|sum(attribute='tocome'))|money }}</b></span>
+    <span class="t">= total {{ 'in' if inn else 'out' }} <b>{{ (groups|sum(attribute='done') + groups|sum(attribute='tocome'))|money }}</b></span>
+  </div>
+</section>
+{%- endmacro %}
+
+{# A focused side panel for one line: read view, with "Edit line" switching to the editor in place
+   (dash.js moves that line's form and milestone editor in from the Forecast & payments drawer). #}
+{% macro line_panel(g, inn) -%}
+{% set l = g.line %}
+{% set chips = {'paid': 'Received' if inn else 'Paid', 'billed': 'Invoiced' if inn else 'Billed', 'order': 'To invoice' if inn else 'On order', 'forecast': 'Forecast'} %}
+<div class="ovl side" id="lp-{{ g.key }}" role="dialog" aria-modal="true" aria-labelledby="lp-{{ g.key }}-t" data-key="{{ g.key }}">
+  <div class="sheet">
+    <div class="sheet-h"><div><div class="t" id="lp-{{ g.key }}-t">{{ l.item if not l.unassigned else 'Not linked to a line' }}</div>
+      <div class="s">{{ l.party or '—' }}{% if l.refs %} · {{ l.refs|join(', ') }}{% endif %}{% if not l.unassigned %} · {{ l.type }}{% endif %} · {{ 'incoming' if inn else 'cost' }}</div></div>
+      <button type="button" class="x" data-close aria-label="Close">✕</button></div>
+    <div class="sheet-b">
+      <div class="lp-read">
+        {% if not l.unassigned %}<div class="lp-acts"><button type="button" class="btn" data-edit="{{ g.key }}">Edit line</button><span class="muted">or open <button type="button" class="lnk" data-open="d-forecast" data-line="{{ g.key }}">Forecast &amp; payments</button></span></div>{% endif %}
+        <div class="lp-stages">
+          {% set m = l.stages %}
+          {% for k, lab in (('paid', 'Received' if inn else 'Paid'), ('unpaid', 'Invoiced, not received' if inn else 'Billed, not paid'), ('on_order', 'Contract, not invoiced' if inn else 'On order, not billed'), ('to_place', 'Forecast, not ordered')) %}
+          <div><small>{{ lab }}</small><b>{{ m[k]|money if m[k]|abs >= 0.5 else '—' }}</b></div>{% endfor %}
+          <div class="x"><small>= Expected</small><b>{{ m.expected|money }}</b></div>
+        </div>
+        {{ pipe(l, [l.expected, l.budget, 1]|max, inn) }}
+        {{ legend() }}
+        <h4>Payments</h4>
+        <div class="lp-pays">
+        {% for r in g.rows %}<div class="lp-pay{{ ' done' if r.done }}{{ ' late' if r.overdue }}"><span>{{ r.label }}{% if r.doc %}<small>{{ r.doc['Type'] }} {{ r.doc['Doc #'] }}{% if r.doc['Due Date'] and not r.done %} · due {{ r.doc['Due Date']|mdate }}{% endif %}</small>{% endif %}</span><span class="d">{{ r.date|mdate if r.date else 'No date' }}</span><span><span class="chip {{ r.kind }}">{{ chips[r.kind] }}</span>{% if r.overdue %} <span class="chip late">overdue</span>{% endif %}</span><span class="a">{{ r.amount|money }}</span></div>
+        {% else %}<p class="hint">Nothing expected on this line.</p>{% endfor %}
+        </div>
+        {% if not l.unassigned %}{{ reconcile(l) }}{% else %}<p class="hint">These NetSuite documents aren't on any forecast line. Link each one under Needs attention or in Forecast &amp; payments.</p>{% endif %}
+        {% if l.txns %}
+        <table class="mini"><caption>NetSuite documents</caption><thead><tr><th>Type</th><th>Doc</th><th>Date</th><th class="num">Amount</th><th>Status</th><th></th></tr></thead><tbody>
+        {% for t in l.txns %}<tr><td>{{ t['Type'] }}</td><td>{{ t['Doc #'] }}</td><td>{{ t['Date']|mdate if t['Date'] else '' }}</td><td class="num">{{ (t['Amount'] or 0)|float|money }}{% if t['Currency Amount'] %}<small>{{ t['Currency Amount'] }}</small>{% endif %}</td><td>{{ ('Paid ' ~ t['Paid Date']|mdate) if t['Paid Date'] else t['Status'] }}</td><td>{% if t['PDF'] %}<a href="/pdf/{{ t['NetSuite ID'] }}" target="_blank" rel="noopener">PDF</a>{% endif %}</td></tr>{% endfor %}
+        </tbody></table>
+        {% else %}<p class="hint">No NetSuite documents yet.</p>{% endif %}
+        {% if l.notes %}<div class="note"><b>Notes.</b> {{ l.notes }}</div>{% endif %}
+      </div>
+      <div class="lp-edit" hidden>
+        <div class="lp-acts"><button type="button" class="btn ghost" data-view="{{ g.key }}">← Back to the line</button><span class="muted">Save each part separately; the figures refresh after a save.</span></div>
+        <div class="lp-slot"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{%- endmacro %}

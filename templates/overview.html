@@ -1,0 +1,135 @@
+{% extends "base.html" %}{% from "_macros.html" import pipe, legend, cash_card, drawer, explain, basis, stage_cells, stage_heads, chart_help, position_strip, stage_strip %}
+{% block main %}
+{% set t = pf.totals %}{% set p = t.position %}
+<div class="pagebar">
+  <h2>All live projects</h2>
+  <span class="by">{{ pf.views|length }} live project{{ '' if pf.views|length == 1 else 's' }}{% if pf.complete %} · {{ pf.complete|length }} complete (financial years only){% endif %}</span>
+  {% if t.unfiled %}<span class="pill warn">{{ t.unfiled }} PDF{{ '' if t.unfiled == 1 else 's' }} not yet filed</span>{% endif %}
+  {% if t.flags %}<span class="pill warn">{{ t.flags }} item{{ '' if t.flags == 1 else 's' }} need attention</span>{% endif %}
+</div>
+
+{% if p %}{{ position_strip(p, 'd-o-in', 'd-o-out', 'd-o-now', 'd-o-final', 'everything in − everything out, live projects') }}{% endif %}
+
+<div class="kfacts">
+  <button type="button" class="kf" data-open="d-o-contract"><small>Contract value</small><b>{{ t.contract|money }}</b><span>{{ t.contract_orig|money }} original + {{ t.variations|money }} variations</span></button>
+  <button type="button" class="kf" data-open="d-o-in"><small>Invoiced / received</small><b>{{ t.invoiced|money }} <i>{{ t.invoiced|share(t.contract) }}</i></b><span>{{ t.received|money }} received ({{ t.received|share(t.contract) }} of contract)</span></button>
+  {% set d = t.cost_expected - t.cost_budget %}
+  <button type="button" class="kf" data-open="d-o-out"><small>Expected cost</small><b>{{ t.cost_expected|money }}</b><span>vs forecast {{ t.cost_budget|money }} · <em class="{{ 'bad' if d > 0.5 else 'good' if d < -0.5 }}">{{ d|signed }}</em>{% if t.cost_fx %} · {{ t.cost_fx|signed }} FX{% endif %}</span></button>
+  <button type="button" class="kf" data-open="d-o-final"><small>Gross margin → net after BHF labour</small><b class="{{ 'bad' if t.gm < 0 }}">{{ t.gm|money }} <i>{{ t.gm_pct|pct }}</i> → <span class="{{ 'bad' if t.nm < 0 }}">{{ t.nm|money }}</span> <i>{{ t.nm_pct|pct }}</i></b><span>labour {{ t.labour|money }}</span></button>
+  <button type="button" class="kf" data-open="d-o-now"><small>Lowest cash ahead</small><b class="{{ 'bad' if pf.low and pf.low.position < 0 }}">{{ pf.low.position|money if pf.low else '—' }}</b><span>{{ ('in ' ~ pf.low.label) if pf.low else '' }} · all live projects</span></button>
+</div>
+
+<div class="odash">
+  <section class="card c-proj" aria-label="Projects">
+    <div class="cap">Live projects <span class="tag">{{ pf.views|length }}</span><span class="more">click a project for its dashboard</span></div>
+    <div class="cbody">
+    <table class="tbl ptbl">
+      <thead><tr><th>Project</th><th>In: received<small>+ still to receive</small></th><th>Out: paid<small>+ still to pay</small></th><th>Cash now</th><th>Final position</th><th>Gross margin</th><th>Net after labour</th><th>Cost stages<small>paid → billed → on order → forecast</small></th><th class="c">Attention</th><th class="c">PDFs not filed</th></tr></thead>
+      <tbody>
+      {% for v in pf.views %}
+      {% set c = v.cost %}{% set q = v.position %}
+      <tr>
+        <td><a href="/p/{{ v.code }}"><b>{{ v.code }}</b> {{ v.name }}</a><small>{{ v.pm }} · contract {{ v.contract|money }}</small></td>
+        <td class="num">{{ q.in_done|money }}<small>+ {{ q.in_tocome|money }}{% if q.in_overdue >= 0.5 %} · <span class="neg">{{ q.in_overdue|money }} overdue</span>{% endif %}</small></td>
+        <td class="num">{{ q.out_done|money }}<small>+ {{ q.out_tocome|money }}{% if q.out_overdue >= 0.5 %} · <span class="neg">{{ q.out_overdue|money }} overdue</span>{% endif %}</small></td>
+        <td class="num {{ 'neg' if q.now < 0 }}">{{ q.now|money }}{% if v.low %}<small>lowest {{ v.low.position|k }} {{ v.low.label }}</small>{% endif %}</td>
+        <td class="num {{ 'neg' if q.final < 0 }}">{{ q.final|money }}</td>
+        <td class="num {{ 'neg' if v.gm < 0 }}">{{ v.gm_pct|pct }}<small>{{ v.gm|money }}</small></td>
+        <td class="num {{ 'neg' if v.nm < 0 }}">{{ v.nm_pct|pct }}<small>{{ v.nm|money }}</small></td>
+        <td class="pipecell">{{ pipe({'paid': c.paid, 'billed': c.billed, 'open_commit': c.open_commit, 'remaining': c.remaining, 'budget': c.budget}, [c.expected, c.budget]|max) }}<small>{{ c.expected|money }} expected{% set d = c.expected - c.budget %}{% if d|abs > 0.5 %} · <span class="{{ 'neg' if d > 0 else 'ok' }}">{{ d|signed }}</span>{% endif %}</small></td>
+        <td class="c">{% if v.flags %}<a class="flagcount" href="/p/{{ v.code }}#attention">{{ v.flags|length }}</a>{% else %}<span class="ok">None</span>{% endif %}</td>
+        <td class="c">{% if v.unfiled %}<span class="pill warn">{{ v.unfiled }}</span>{% else %}<span class="muted">–</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+      {% if pf.views|length > 1 %}
+      <tr class="tot"><td>All live projects</td><td>{{ p.in_done|money }}</td><td>{{ p.out_done|money }}</td><td>{{ p.now|money }}</td><td>{{ p.final|money }}</td><td>{{ t.gm_pct|pct }}</td><td>{{ t.nm_pct|pct }}</td><td>{{ t.cost_expected|money }}</td><td class="c">{{ t.flags }}</td><td class="c">{{ t.unfiled }}</td></tr>
+      {% endif %}
+      </tbody>
+    </table>
+    {{ legend() }}
+    </div>
+  </section>
+
+  {{ cash_card(pf.curve, pf.fy, pf.fy_now, 'c-ocash', 'Cash by month', fy_note='FY views include completed projects; “All” is live projects only') }}
+
+  <section class="card c-ofy" aria-label="Financial years">
+    <div class="cap">Financial years <span class="tag">all projects incl. completed</span><span class="more"><button type="button" class="lnk" data-open="d-fyall">per project</button></span></div>
+    <div class="cbody">
+    {% if pf.fy_all %}
+    <table class="tbl fyt">
+      <thead><tr><th></th>{% for f in pf.fy_all %}<th>{{ f.fy }}<small>{% if f.from %}data from {{ f.from }}{% elif f.to %}to {{ f.to }}{% else %}Jul–Jun{% endif %}{% if f.from and f.to %} to {{ f.to }}{% endif %}</small></th>{% endfor %}</tr></thead>
+      <tbody>
+        <tr class="sub"><td colspan="{{ pf.fy_all|length + 1 }}"><b>Cash</b> · by NetSuite paid date</td></tr>
+        <tr><td>Received</td>{% for f in pf.fy_all %}<td class="num">{{ f.received|money }}</td>{% endfor %}</tr>
+        <tr><td>Paid</td>{% for f in pf.fy_all %}<td class="num">{{ f.paid|money }}</td>{% endfor %}</tr>
+        <tr class="tot"><td>Net cash</td>{% for f in pf.fy_all %}<td class="{{ 'neg' if f.net < 0 }}">{{ f.net|money }}</td>{% endfor %}</tr>
+        <tr class="sub"><td colspan="{{ pf.fy_all|length + 1 }}"><b>Documents</b> · by invoice / bill date</td></tr>
+        <tr><td>Invoiced</td>{% for f in pf.fy_all %}<td class="num">{{ f.invoiced|money }}</td>{% endfor %}</tr>
+        <tr><td>Costs billed</td>{% for f in pf.fy_all %}<td class="num">{{ f.billed|money }}</td>{% endfor %}</tr>
+        <tr class="tot"><td>Gross (invoiced − billed)</td>{% for f in pf.fy_all %}<td class="{{ 'neg' if f.gross < 0 }}">{{ f.gross|money }}</td>{% endfor %}</tr>
+      </tbody>
+    </table>
+    <p class="hint" style="margin:6px 0 0">Actuals only. {% for f in pf.fy_all if f.from %}{{ f.fy }} is a part year: the loaded history starts {{ f.from }}. {% endfor %}{% for f in pf.fy_all if f.current %}{{ f.fy }} is to date ({{ f.to }}). {% endfor %}</p>
+    {% else %}<p class="empty">No transactions yet.</p>{% endif %}
+    </div>
+  </section>
+</div>
+<div class="foot"><b>Basis:</b> AUD ex GST. Live projects drive the statement, figures, table and “All” chart; completed projects count in financial years only; closed projects are left out. Actuals from NetSuite paid dates; still to come from unpaid bills and invoices, unbilled milestones, open PO balances and forecasts.</div>
+{% endblock %}
+
+{% block drawers %}{% set t = pf.totals %}{% set p = t.position %}
+{% call drawer('d-o-in', 'Incoming — all live projects', 'received, invoiced and still to come, per project', size='wide') %}
+  {{ explain('What customers have paid us, what is invoiced but not paid, what is still to invoice under contracts, and incoming forecast not yet on a customer PO.', 'Expected in = received + invoiced, not received + contract, not invoiced + forecast, not ordered') }}
+  <table class="tbl"><thead><tr><th>Project</th><th>Contract</th><th>Invoiced</th>{{ stage_heads(True) }}</tr></thead><tbody>
+  {% for v in pf.views %}<tr><td><a href="/p/{{ v.code }}">{{ v.code }}</a> {{ v.name }}</td><td class="num">{{ v.contract|money }}</td><td class="num">{{ v.rev.billed|money }} <small>{{ v.rev.billed|share(v.contract) }}</small></td>{{ stage_cells(v.money['in']) }}</tr>{% endfor %}
+  <tr class="tot"><td>Total</td><td>{{ t.contract|money }}</td><td>{{ t.invoiced|money }}</td>{{ stage_cells(t.money['in']) }}</tr></tbody></table>
+  {{ basis('Customer invoices, credit memos and receipts from NetSuite (received = paid date). Contract, not invoiced = unbilled customer milestones or the line amount less invoices. Live projects only.') }}
+{% endcall %}
+
+{% call drawer('d-o-out', 'Outgoing — expected cost, all live projects', 'by project and money stage', size='wide') %}
+  {{ explain('Everything the live jobs are expected to cost, split by where the money is.', 'Expected cost = paid + billed, not paid + on order, not billed + forecast, not ordered') }}
+  <table class="tbl"><thead><tr><th>Project</th><th>Forecast</th>{{ stage_heads() }}<th>vs forecast</th><th>of which FX</th></tr></thead><tbody>
+  {% for v in pf.views %}{% set c = v.cost %}<tr><td><a href="/p/{{ v.code }}">{{ v.code }}</a> {{ v.name }}</td><td class="num muted">{{ c.budget|money }}</td>{{ stage_cells(v.money.out) }}<td class="num {{ 'neg' if c.expected - c.budget > 0.5 }}">{{ (c.expected - c.budget)|signed }}</td><td class="num muted">{{ c.fx|signed if c.fx else '—' }}</td></tr>{% endfor %}
+  <tr class="tot"><td>Total</td><td>{{ t.cost_budget|money }}</td>{{ stage_cells(t.money.out) }}<td>{{ (t.cost_expected - t.cost_budget)|signed }}</td><td>{{ t.cost_fx|signed if t.cost_fx else '—' }}</td></tr></tbody></table>
+  {{ basis('POs, bills and payments from NetSuite; forecasts from the Forecasts sheet. FX = exchange-rate movement between PO date and bill date on foreign-currency POs. Live projects only.') }}
+{% endcall %}
+
+{% call drawer('d-o-now', 'Cash now — all live projects', 'received less paid, and the low point ahead', size='mid') %}
+  {{ explain('The cash the live jobs hold today: what customers have paid us less what we have paid out.', 'Cash now = received − paid (NetSuite paid dates, up to today).   Lowest ahead = the lowest month-end position projected from this month on.') }}
+  <table class="tbl"><thead><tr><th>Project</th><th>Received</th><th>Paid</th><th>Cash now</th><th>Lowest ahead</th></tr></thead><tbody>
+  {% for v in pf.views %}{% set q = v.position %}<tr><td><a href="/p/{{ v.code }}">{{ v.code }}</a> {{ v.name }}</td><td class="num">{{ q.in_done|money }}</td><td class="num">{{ q.out_done|money }}</td><td class="num {{ 'neg' if q.now < 0 }}">{{ q.now|money }}</td><td class="num">{{ (v.low.position|money ~ ' · ' ~ v.low.label) if v.low else '—' }}</td></tr>{% endfor %}
+  <tr class="tot"><td>Total</td><td>{{ p.in_done|money }}</td><td>{{ p.out_done|money }}</td><td>{{ p.now|money }}</td><td>{{ (pf.low.position|money ~ ' · ' ~ pf.low.label) if pf.low else '—' }}</td></tr></tbody></table>
+  {{ basis('Paid dates from NetSuite. The combined low point is on the combined monthly curve, so it is not the sum of each project\'s low point. Live projects only.') }}
+{% endcall %}
+
+{% call drawer('d-o-final', 'Final position and margin — all live projects', 'what the jobs make', size='wide') %}
+  {{ explain('What the live jobs are expected to make once everything is in and out, and the margin on contract value before and after BHF labour.', 'Final position = everything in − everything out.   Gross margin = contract value − expected cost.   Net after BHF labour = gross margin − internal labour.') }}
+  <table class="tbl"><thead><tr><th>Project</th><th>Expected in</th><th>Expected out</th><th>Final position</th><th>Contract</th><th>Gross margin</th><th>GM %</th><th>BHF labour</th><th>Net</th><th>Net %</th></tr></thead><tbody>
+  {% for v in pf.views %}<tr><td><a href="/p/{{ v.code }}">{{ v.code }}</a> {{ v.name }}</td><td class="num">{{ v.rev.expected|money }}</td><td class="num">{{ v.cost.expected|money }}</td><td class="num">{{ v.position.final|money }}</td><td class="num">{{ v.contract|money }}</td><td class="num">{{ v.gm|money }}</td><td class="num">{{ v.gm_pct|pct }}</td><td class="num">{{ v.labour|money }}</td><td class="num {{ 'neg' if v.nm < 0 }}">{{ v.nm|money }}</td><td class="num">{{ v.nm_pct|pct }}</td></tr>{% endfor %}
+  <tr class="tot"><td>Total</td><td>{{ (p.in_done + p.in_tocome)|money }}</td><td>{{ t.cost_expected|money }}</td><td>{{ p.final|money }}</td><td>{{ t.contract|money }}</td><td>{{ t.gm|money }}</td><td>{{ t.gm_pct|pct }}</td><td>{{ t.labour|money }}</td><td>{{ t.nm|money }}</td><td>{{ t.nm_pct|pct }}</td></tr></tbody></table>
+  {{ basis('Final position uses the incoming forecast lines; margin uses Contract Value on the Projects sheet, so they differ where contract value is not all on incoming lines. BHF labour is Internal Labour on the Projects sheet and is not in the cashflow. Live projects only.') }}
+{% endcall %}
+
+{% call drawer('d-o-contract', 'Contract value — all live projects', 'original contract and variations', size='mid') %}
+  {{ explain('What customers have agreed to pay for the live jobs, including approved variations.', 'Contract value = original contract + variations (Contract Value on the Projects sheet)') }}
+  <table class="tbl"><thead><tr><th>Project</th><th>Original</th><th>Variations</th><th>Not on an incoming line</th><th>Contract value</th></tr></thead><tbody>
+  {% for v in pf.views %}<tr><td><a href="/p/{{ v.code }}">{{ v.code }}</a> {{ v.name }}</td><td class="num">{{ v.contract_orig|money }}</td><td class="num">{{ v.variations|money }}</td><td class="num muted">{{ v.contract_diff|signed if v.contract_diff else '—' }}</td><td class="num">{{ v.contract|money }}</td></tr>{% endfor %}
+  <tr class="tot"><td>Total</td><td>{{ t.contract_orig|money }}</td><td>{{ t.variations|money }}</td><td>{{ t.contract_diff|signed if t.contract_diff|abs >= 0.5 else '—' }}</td><td>{{ t.contract|money }}</td></tr></tbody></table>
+  {{ basis('Split by the incoming forecast lines: Cost Type “Variation” = variations, other incoming lines = original contract. A difference to the Projects sheet is shown, not guessed. Live projects only.') }}
+{% endcall %}
+
+{% call drawer('d-fyall', 'Financial years — all projects incl. completed', 'Australian FY, 1 Jul to 30 Jun · actuals only', size='wide') %}
+  {{ explain('Money that actually moved in each financial year, on two bases: cash (when it was received or paid) and documents (when it was invoiced or billed).', 'Net cash = received − paid (paid dates).   Gross = invoiced − costs billed (document dates).') }}
+  {% for f in pf.fy_all %}
+  <h3>{{ f.fy }} <small>{{ f.start|mdate }} to {{ f.end|mdate }}{% if f.from %} · part year: data from {{ f.from }}{% endif %}{% if f.to %} · to date ({{ f.to }}){% endif %}</small></h3>
+  <table class="tbl"><thead><tr><th>Project</th><th>Status</th><th>Received</th><th>Paid</th><th>Net cash</th><th>Invoiced</th><th>Costs billed</th><th>Gross</th></tr></thead><tbody>
+  {% for r in f.projects %}<tr><td>{{ r.code }} {{ r.name }}</td><td>{{ r.status }}</td><td class="num">{{ r.received|money }}</td><td class="num">{{ r.paid|money }}</td><td class="num {{ 'neg' if r.net < 0 }}">{{ r.net|money }}</td><td class="num">{{ r.invoiced|money }}</td><td class="num">{{ r.billed|money }}</td><td class="num {{ 'neg' if r.gross < 0 }}">{{ r.gross|money }}</td></tr>
+  {% else %}<tr><td colspan="8" class="muted">No activity.</td></tr>{% endfor %}
+  <tr class="tot"><td>Total</td><td></td><td>{{ f.received|money }}</td><td>{{ f.paid|money }}</td><td>{{ f.net|money }}</td><td>{{ f.invoiced|money }}</td><td>{{ f.billed|money }}</td><td>{{ f.gross|money }}</td></tr></tbody></table>
+  {% endfor %}
+  {{ basis('Live and Complete projects; Closed projects are left out. Only transactions loaded from NetSuite are counted, so a year before the earliest loaded transaction is a part year and says so. Credits count negative.') }}
+{% endcall %}
+
+{% call drawer('d-chart', 'How to read the cash chart', 'All live projects', size='mid') %}{{ chart_help('Here the FY buttons include completed projects, so a past year shows everything that moved in it; “All” shows live projects only.') }}{% endcall %}
+{% endblock %}
+{% block scripts %}<script>window.CURVE = {{ pf.curve|tojson }}; window.CURVE_FY = {{ pf.curve_fy|tojson }};</script><script src="/static/chart.js"></script>{% endblock %}

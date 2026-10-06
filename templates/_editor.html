@@ -1,0 +1,175 @@
+{# The "Forecast & payments" editor. Lines read as a table; click one to open its edit form, payment schedule,
+   breakdown and NetSuite documents. Each editable row owns a small <form class="rowform">; static/editor.js
+   saves without a page jump and keeps what was typed if the save is refused. #}
+{% from "_macros.html" import reconcile, pipe, legend %}
+
+{% macro dash(v) -%}{{ v|money if v|abs >= 0.5 else '—' }}{%- endmacro %}
+
+{% macro vs_tag(l) -%}
+{% set fxonly = l.fx and (l.overrun - l.fx)|abs < 1 %}
+{%- if l.budget and l.overrun|abs > 0.5 -%}
+  <span class="tag {{ ('fx' if fxonly else ('bad' if l.overrun > 0 else 'good')) if l.direction == 'Out' else '' }}">{{ l.overrun|abs|money }} {{ 'over' if l.overrun > 0 else 'under' }}{{ ' · all exchange rate' if fxonly }}</span>
+{%- elif l.remaining > 0.5 -%}<span class="tag">{{ l.remaining|money }} to place</span>
+{%- elif l.budget -%}<span class="tag ok">on forecast</span>
+{%- else -%}<span class="muted">—</span>{%- endif %}
+{%- endmacro %}
+
+{# The edit form for a line (or a new one: l=None, direction preset). #}
+{% macro line_form(code, l=None, direction='Out', key='') -%}
+{% set f = l.f if l else {'Direction': direction, 'Cost Type': 'Customer Milestone' if direction == 'In' else ''} %}
+{% set fid = 'fc-' ~ (l.id if l else 'new-' ~ direction|lower) %}
+<form id="{{ fid }}" class="rowform edit-row lform" method="post" action="/p/{{ code }}/forecast" data-key="{{ key }}">
+  <input type="hidden" name="id" value="{{ l.id if l else '' }}">
+  <div class="fgrid2">
+    <label class="w2">Item<input name="item" value="{{ f['Item'] or '' }}" required placeholder="{{ 'e.g. VO2 extra skid' if direction == 'In' else 'e.g. Freight to site' }}"></label>
+    <label>Party<input name="party" value="{{ f['Party'] or '' }}" placeholder="{{ 'Customer' if direction == 'In' else 'Supplier' }}"></label>
+    <label>Cost type<select name="cost_type"><option value=""></option>{% for c in cost_types %}<option{{ ' selected' if f['Cost Type'] == c }}>{{ c }}</option>{% endfor %}</select></label>
+    <label>Direction<select name="direction">{% for d, lab in (('In', 'In: customer'), ('Out', 'Out: cost')) %}<option value="{{ d }}"{{ ' selected' if f['Direction'] == d }}>{{ lab }}</option>{% endfor %}</select></label>
+    <label>Forecast amount<input name="amount" value="{{ f['Amount']|amt }}" class="num" inputmode="decimal" placeholder="0.00"></label>
+    <label>Expected date<input name="date" type="date" value="{{ f['Expected Date'] or '' }}"></label>
+    <label>PO / Order #<input name="po" value="{{ f['PO / Order #'] or '' }}" placeholder="{{ 'Customer PO' if direction == 'In' else 'e.g. PO006180' }}"></label>
+    <label class="chk"><input name="closed" type="checkbox" value="1"{{ ' checked' if f['Closed'] }}> Closed<small>no more spend expected</small></label>
+    <label class="w3">Notes<input name="notes" value="{{ f['Notes'] or '' }}"></label>
+  </div>
+  <div class="fact act"><button class="btn">{{ 'Save' if l else 'Add line' }}</button><button type="button" class="btn ghost" data-cancel>Cancel</button><span class="msg" role="status"></span></div>
+</form>
+{%- endmacro %}
+
+{% macro stage_spans(m) -%}
+<span class="c-n">{{ dash(m.paid) }}</span><span class="c-n">{{ dash(m.unpaid) }}</span><span class="c-n">{{ dash(m.on_order) }}</span><span class="c-n">{{ dash(m.to_place) }}</span><span class="c-n c-x">{{ dash(m.expected) }}</span>
+{%- endmacro %}
+
+{% macro line(code, l, forecast_items, scale=1) -%}
+{% set key = l.key %}
+<div class="fl{{ ' unlinked' if l.unassigned }}" data-key="{{ key }}" id="fl-{{ key }}">
+  <button type="button" class="fl-h" aria-expanded="false" aria-controls="fl-{{ key }}-p">
+    <span class="c-line"><b>{{ l.item }}</b>{% if l.type == 'Variation' and l.direction == 'In' %} <span class="tag fx">Variation</span>{% endif %}
+      <small>{{ l.party or '—' }}{% if l.refs %} · {{ l.refs|join(', ') }}{% endif %}{% if l.milestones %} · {{ l.milestones|length }} payment stage{{ '' if l.milestones|length == 1 else 's' }}{% endif %}</small></span>
+    <span class="c-kind">{% if l.direction == 'Out' and not l.unassigned %}<span class="tag">{{ l.type }}</span>{% endif %}</span>
+    <span class="c-pipe">{{ pipe(l, scale, l.direction == 'In') }}</span>
+    {{ stage_spans(l.stages) }}
+    <span class="c-vs">{% if not l.unassigned %}{{ vs_tag(l) }}{% endif %}</span>
+    <span class="c-d">{{ l.date|mdate if l.date else '—' }}</span>
+    <span class="c-chev" aria-hidden="true"></span>
+  </button>
+  <div class="fl-p" id="fl-{{ key }}-p">
+    {% if l.unassigned %}
+      <p class="hint">These NetSuite documents aren't on any forecast line. Pick the line each one belongs to.</p>
+      {% for t in l.txns %}
+      <form method="post" action="/link" class="linkform lrowx">
+        <span><b>{{ t['Type'] }} {{ t['Doc #'] }}</b> · {{ t['Party'] or '' }} · {{ (t['Amount'] or 0)|float|money }}{% if t['PDF'] %} · <a href="/pdf/{{ t['NetSuite ID'] }}" target="_blank" rel="noopener">PDF</a>{% endif %}</span>
+        <input type="hidden" name="code" value="{{ code }}"><input type="hidden" name="netsuite_id" value="{{ t['NetSuite ID'] }}">
+        <label>Add to <select name="forecast">{% for f in forecast_items %}<option>{{ f }}</option>{% endfor %}</select></label>
+        <button class="btn">Link</button>
+      </form>
+      {% endfor %}
+    {% else %}
+    {{ line_form(code, l, l.direction, key) }}
+    <div class="fl-cols">
+      <div class="fl-sched">
+        <h4>Payment schedule</h4>
+        {% if l.milestones or l.refs %}{{ milestones(code, l, 'forecast') }}
+        {% else %}<p class="hint">Add the {{ 'customer PO' if l.direction == 'In' else 'PO' }} number above, then its payment stages can be added here.</p>{% endif %}
+      </div>
+      <div class="fl-recon">{{ reconcile(l) }}</div>
+    </div>
+    {% if l.txns %}
+    <table class="mini"><caption>NetSuite documents</caption><thead><tr><th>Type</th><th>Doc</th><th>Date</th><th class="num">Amount</th><th>Status</th><th></th></tr></thead><tbody>
+    {% for t in l.txns %}<tr><td>{{ t['Type'] }}</td><td>{{ t['Doc #'] }}</td><td>{{ t['Date']|mdate if t['Date'] else '' }}</td><td class="num">{{ (t['Amount'] or 0)|float|money }}{% if t['Currency Amount'] %}<small>{{ t['Currency Amount'] }}</small>{% endif %}</td><td>{{ ('Paid ' ~ t['Paid Date']|mdate) if t['Paid Date'] else t['Status'] }}</td><td>{% if t['PDF'] %}<a href="/pdf/{{ t['NetSuite ID'] }}" target="_blank" rel="noopener">PDF</a>{% endif %}</td></tr>{% endfor %}
+    </tbody></table>
+    {% else %}<p class="hint">No NetSuite documents yet.</p>{% endif %}
+    {% endif %}
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro totals_row(t, label) -%}
+<div class="fl-tot"><span class="c-line">{{ label }}</span><span class="c-kind"></span><span class="c-pipe"></span>
+  {{ stage_spans(t.stages) }}
+  <span class="c-vs">{% if t.budget and t.vs|abs > 0.5 %}{{ t.vs|signed }} vs forecast{% else %}—{% endif %}</span><span class="c-d"></span><span class="c-chev"></span></div>
+{%- endmacro %}
+
+{# The whole editor: money in, then money out grouped by status. #}
+{% macro forecast_editor(code, blocks, forecast_items) -%}
+<div class="fe-leg">{{ legend() }}<span class="muted">The four stages don't overlap: they add up to the expected total.</span></div>
+{% for b in blocks %}
+{% set inn = b.direction == 'In' %}
+{% set scale = [b.groups|map(attribute='lines')|sum(start=[])|map(attribute='expected')|max, b.groups|map(attribute='lines')|sum(start=[])|map(attribute='budget')|max]|max if b.groups else 1 %}
+<section class="fblock {{ 'in' if inn else 'out' }}" aria-label="{{ 'Money in' if inn else 'Money out' }}">
+  <div class="fb-h">
+    <h3>{{ 'Money in — customer' if inn else 'Money out — costs' }}</h3>
+    {% set m = b.totals.stages %}
+    <dl class="fb-tot">
+      <div><dt>{{ 'Received' if inn else 'Paid' }}</dt><dd>{{ dash(m.paid) }}</dd></div>
+      <div><dt>{{ 'Invoiced, not received' if inn else 'Billed, not paid' }}</dt><dd>{{ dash(m.unpaid) }}</dd></div>
+      <div><dt>{{ 'Contract, not invoiced' if inn else 'On order, not billed' }}</dt><dd>{{ dash(m.on_order) }}</dd></div>
+      <div><dt>Forecast, not ordered</dt><dd>{{ dash(m.to_place) }}</dd></div>
+      <div class="x"><dt>= Expected</dt><dd>{{ dash(m.expected) }}</dd></div>
+      <div><dt>vs forecast</dt><dd class="{{ ('bad' if b.totals.vs > 0.5 else 'good' if b.totals.vs < -0.5 else '') if not inn }}">{{ b.totals.vs|signed if b.totals.vs|abs > 0.5 else 'on forecast' }}</dd></div>
+    </dl>
+  </div>
+  <div class="fl-colh" aria-hidden="true"><span class="c-line">Line</span><span class="c-kind">{{ '' if inn else 'Type' }}</span><span class="c-pipe">Stages</span><span class="c-n">{{ 'Received' if inn else 'Paid' }}</span><span class="c-n">{{ 'Invoiced, not received' if inn else 'Billed, not paid' }}</span><span class="c-n">{{ 'Contract, not invoiced' if inn else 'On order, not billed' }}</span><span class="c-n">Forecast, not ordered</span><span class="c-n c-x">= Expected</span><span class="c-vs">vs forecast</span><span class="c-d">Expected</span><span class="c-chev"></span></div>
+  {% for g in b.groups %}
+    {% if not inn or g.key != 'ordered' %}<div class="fl-g">{{ g.label }} <small>{{ g.lines|length }} line{{ '' if g.lines|length == 1 else 's' }}</small></div>{% endif %}
+    {% for l in g.lines %}{{ line(code, l, forecast_items, scale) }}{% endfor %}
+    {% if not inn and b.groups|length > 1 %}{{ totals_row(g.totals, 'Subtotal, ' ~ g.label|lower) }}{% endif %}
+  {% else %}<p class="hint">No {{ 'customer' if inn else 'cost' }} lines yet.</p>{% endfor %}
+  <div class="fl new" data-key="new-{{ b.direction|lower }}" id="fl-new-{{ b.direction|lower }}">
+    <button type="button" class="fl-add" aria-expanded="false" aria-controls="fl-new-{{ b.direction|lower }}-p">+ {{ 'Add customer line (e.g. variation)' if inn else 'Add cost line' }}</button>
+    <div class="fl-p" id="fl-new-{{ b.direction|lower }}-p">{{ line_form(code, None, b.direction, 'new-' ~ b.direction|lower) }}</div>
+  </div>
+</section>
+{% endfor %}
+{%- endmacro %}
+
+{% macro milestones(code, l, anchor) -%}
+{% if l.milestones or l.refs %}
+<div class="scroll">
+<table class="mini editor ms">
+  <caption>Payment schedule</caption>
+  <thead><tr><th>PO / order</th><th>Milestone</th><th class="num">%</th><th class="num">Amount</th><th>Expected</th><th class="c">Confirmed</th><th>Billed</th><th></th></tr></thead>
+  <tbody>
+  {% for m in l.milestones %}
+    {% set inv = (l.txns|selectattr('Doc #', 'equalto', m['Billed Doc'])|list|first) if m['Billed Doc'] else None %}
+    {% set paid = inv['Paid Date'] if inv else None %}
+    {% if m['Billed Doc'] %}
+    <tr class="done"><td>{{ m['PO / Order #'] }}</td><td>{{ m['Milestone'] }}</td><td class="num">{{ m['Percent']|pctin }}</td>
+      <td class="num">{{ (m['Amount'] or 0)|float|money }}</td><td>{{ m['Expected Date'] or '' }}</td><td class="c">✓</td>
+      <td>{{ m['Billed Doc'] }}{% if inv %} · {{ (inv['Amount'] or 0)|float|money }}
+        {%- set d = (inv['Amount'] or 0)|float - (m['Amount'] or 0)|float %}{% if d|abs >= 0.5 %} <span class="tag {{ 'fx' if inv['Currency Amount'] else '' }}">{{ '+' if d > 0 else '' }}{{ d|money }}{{ ' FX' if inv['Currency Amount'] }}</span>{% endif %}{% endif %}
+        {%- if paid %}<small>{{ 'received' if l.direction == 'In' else 'paid' }} {{ paid }}</small>{% endif %}</td><td></td></tr>
+    {% else %}
+    {% set mid = 'ms-' ~ m['_id'] %}
+    <tr data-base="{{ l.bases.get(norm(m['PO / Order #'])) or 0 }}" class="{{ 'unconfirmed' if not m['Confirmed'] }}">
+      <td>{{ m['PO / Order #'] }}<form id="{{ mid }}" class="rowform" method="post" action="/p/{{ code }}/milestone"><input type="hidden" name="id" value="{{ m['_id'] }}"><input type="hidden" name="anchor" value="{{ anchor }}"></form></td>
+      <td><input form="{{ mid }}" name="milestone" value="{{ m['Milestone'] or '' }}" required aria-label="Milestone"></td>
+      <td><input form="{{ mid }}" name="percent" value="{{ m['Percent']|pctin }}" class="num pct" inputmode="decimal" aria-label="Percent"></td>
+      <td><input form="{{ mid }}" name="amount" value="{{ m['Amount']|amt }}" class="num amt" inputmode="decimal" aria-label="Amount"></td>
+      <td><input form="{{ mid }}" name="date" type="date" value="{{ m['Expected Date'] or '' }}" aria-label="Expected date"></td>
+      <td class="c"><input form="{{ mid }}" name="confirmed" type="checkbox" value="1"{{ ' checked' if m['Confirmed'] }} aria-label="Confirmed"></td>
+      <td>Not yet</td>
+      <td class="act"><button form="{{ mid }}">Save</button><button form="{{ mid }}" name="delete" value="1" class="del" formnovalidate
+        title="Remove this milestone" aria-label="Remove milestone {{ m['Milestone'] }}">×</button><span class="msg" role="status"></span></td>
+    </tr>
+    {% endif %}
+  {% endfor %}
+  {% if l.refs %}
+    {% set mid = 'ms-new-' ~ l.id %}
+    <tr class="newrow">
+      <td><form id="{{ mid }}" class="rowform" method="post" action="/p/{{ code }}/milestone"><input type="hidden" name="item" value="{{ l.item }}"><input type="hidden" name="anchor" value="{{ anchor }}"></form>
+        <select form="{{ mid }}" name="po" class="po" aria-label="PO / order">{% for o in l.refs %}<option data-base="{{ l.bases.get(norm(o)) or 0 }}">{{ o }}</option>{% endfor %}</select></td>
+      <td><input form="{{ mid }}" name="milestone" required placeholder="Add a milestone" aria-label="Milestone"></td>
+      <td><input form="{{ mid }}" name="percent" class="num pct" inputmode="decimal" aria-label="Percent"></td>
+      <td><input form="{{ mid }}" name="amount" class="num amt" inputmode="decimal" aria-label="Amount"></td>
+      <td><input form="{{ mid }}" name="date" type="date" aria-label="Expected date"></td>
+      <td class="c"><input form="{{ mid }}" name="confirmed" type="checkbox" value="1" checked aria-label="Confirmed"></td>
+      <td></td>
+      <td class="act"><button form="{{ mid }}">Add</button><span class="msg" role="status"></span></td>
+    </tr>
+  {% endif %}
+  </tbody>
+  {% if l.pct_gaps %}<tfoot><tr><td colspan="8" class="gap">{% for o, t in l.pct_gaps %}{{ o }} milestones add up to {{ '%g'|format(t * 100) }}%, not 100%. {% endfor %}</td></tr></tfoot>{% endif %}
+</table>
+</div>
+{% endif %}
+{%- endmacro %}

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{% block title %}Project Cashflow · BHF{% endblock %}</title>
+<script>document.documentElement.classList.add("js")</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body{% if demo %} data-demo{% endif %}>
+<div class="board">
+<header class="top">
+  <a href="/" aria-label="All live projects"><img class="brandlogo" src="{{ logo }}" alt="BHF Technologies"></a>
+  <div class="ttl"><h1>Project Cashflow</h1><div class="sub">Live projects · AUD ex GST · actuals from NetSuite, forecasts from Smartsheet</div></div>
+  <span class="asat" title="Latest NetSuite sync stamp on the Transactions sheet">Data as at {{ as_at }}</span>
+  <div class="spacer"></div>
+  <div class="meta"><a href="/refresh">Refresh</a>{% if user %}<a href="/logout">Sign out</a>{% endif %}</div>
+</header>
+<nav class="ptabs" aria-label="Projects">
+  <a href="/"{% if active == 'overview' %} aria-current="page"{% endif %}><b>All live projects</b><span>{{ tabs|length }} project{{ '' if tabs|length == 1 else 's' }}</span></a>
+  {% for code, name in tabs %}<a href="/p/{{ code }}"{% if active == code %} aria-current="page"{% endif %}><b>{{ code }}</b><span>{{ name }}</span></a>{% endfor %}
+</nav>
+{% block main %}{% endblock %}
+</div>
+{% block drawers %}{% endblock %}
+<script src="/static/dash.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
