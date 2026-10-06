@@ -72,6 +72,7 @@ def last_synced(txns) -> str:
 def ctx(request, **kw):
     projects, forecasts, txns, sched = load()
     pf = model.portfolio(projects, forecasts, txns, sched)
+    pf["totals"]["flags"] = model.apply_acknowledgements(pf["views"], store.flag_log())
     synced = last_synced(txns)
     today = dt.date.today().isoformat()
     b = store.budget()
@@ -169,6 +170,23 @@ def pl_csv(request: Request, code: str):
         w.writerow([f"{f['fy']} total", f["fy"], "", f["rev"], f["rev_base"], f["rev_act"], "", f["cost"], f["cost_base"], f["cost_act"], ""])
     return Response(buf.getvalue().encode("utf-8-sig"), media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="{code} P&L schedule.csv"'})
+
+
+@app.post("/p/{code}/flag")
+async def ack_flag(request: Request, code: str):
+    """Acknowledge a "needs attention" item (optional reason), or restore one (restore=1)."""
+    if (r := auth.require(request)):
+        return r
+    form = await request.form()
+    key = str(form.get("key") or "")
+    if not key:
+        return _done(request, code, "Which item?", "attention")
+    if form.get("restore"):
+        err = _safely(store.restore_flag, code, key)
+    else:
+        err = _safely(store.ack_flag, code, key, str(form.get("kind") or ""), str(form.get("text") or ""),
+                      form.get("amount"), str(form.get("reason") or ""))
+    return _done(request, code, err, "attention")
 
 
 @app.post("/link")

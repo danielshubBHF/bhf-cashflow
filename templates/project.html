@@ -48,8 +48,13 @@
     <div class="cbody">
     {% if v.flags %}
     <ul class="att">
-    {% for kind, text, t in v.flags %}
+    {% for kind, text, t in v.flags %}{% set m = v.flag_meta[loop.index0] %}
       <li class="{{ kind }}"><div><span class="k">{{ {'link': 'Unlinked', 'late': 'Late', 'over': 'Over', 'terms': 'Terms', 'overdue': 'Overdue'}.get(kind, kind) }}</span>{{ text }}
+        <form method="post" action="/p/{{ v.code }}/flag" class="ackform">
+          <input type="hidden" name="key" value="{{ m.key }}"><input type="hidden" name="kind" value="{{ kind }}">
+          <input type="hidden" name="text" value="{{ text }}"><input type="hidden" name="amount" value="{{ m.amount if m.amount is not none else '' }}">
+          <input name="reason" placeholder="Reason (optional)" aria-label="Reason" maxlength="200"><button class="btn ghost">Acknowledge</button>
+        </form>
         {% if kind == 'link' and t %}
         <form method="post" action="/link" class="linkform">
           <input type="hidden" name="code" value="{{ v.code }}"><input type="hidden" name="netsuite_id" value="{{ t['NetSuite ID'] }}">
@@ -61,6 +66,14 @@
     {% endfor %}
     </ul>
     {% else %}<p class="empty">Nothing needs attention.</p>{% endif %}
+    {% if v.flags_ack %}
+    <details class="acked"><summary>{{ v.flags_ack|length }} acknowledged</summary>
+      <ul class="att">{% for a in v.flags_ack %}
+        <li class="{{ a.kind }} done"><div>{{ a.text }}<small>Acknowledged {{ a.ack['Acknowledged']|mdate }}{% if a.ack['Reason'] %} · {{ a.ack['Reason'] }}{% endif %}</small>
+          <form method="post" action="/p/{{ v.code }}/flag" class="ackform"><input type="hidden" name="key" value="{{ a.key }}"><input type="hidden" name="restore" value="1"><button class="btn ghost">Restore</button></form></div></li>
+      {% endfor %}</ul>
+    </details>
+    {% endif %}
     </div>
   </section>
 </div>

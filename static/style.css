@@ -829,3 +829,10 @@ table.editor td.gap{font-size:12px}
 .fy-sub{margin:10px 0 4px;font-family:var(--head);font-size:13.5px;color:var(--navy)}
 .fyproj td small{display:inline;margin-left:4px}
 .fyproj td,.fyproj th{padding:4px 8px}
+
+/* ---- acknowledging "needs attention" items */
+.ackform{display:flex;gap:6px;align-items:center;margin-top:5px}
+.ackform input[name=reason]{flex:1;min-width:0;font:inherit;font-size:12.5px;padding:3px 7px;border:1px solid var(--edge);border-radius:6px}
+.ackform .btn{font-size:12px;padding:3px 10px}
+.acked{margin-top:10px} .acked summary{cursor:pointer;color:var(--muted);font-size:12.5px}
+.acked li.done{color:var(--muted)} .acked li small{display:block;margin-top:2px}

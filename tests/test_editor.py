@@ -185,6 +185,33 @@ def test_demo_store_edits_in_memory_only():
         os.environ.pop("DEMO")
 
 
+def test_acknowledged_items_leave_the_list_until_they_change():
+    from bhf.model import apply_acknowledgements, project_view as pv
+    os.environ["DEMO"] = "1"
+    try:
+        s = Store()
+        d = s.load()
+        v = pv(d[0][0], d[1], d[2], d[3], "2026-10-05")
+        jar = next(m for m in v["flag_meta"] if m["key"] == "over:Jar testing")
+        assert jar["amount"] == 548
+        assert s.ack_flag("BHF26001", jar["key"], "over", jar["text"], jar["amount"], "Accepted, lab costs") is None
+        n = apply_acknowledgements([v], s.flag_log())
+        assert not any(m["key"] == "over:Jar testing" for m in v["flag_meta"]) and n == len(v["flags"])
+        assert v["flags_ack"][0]["ack"]["Reason"] == "Accepted, lab costs"
+        # the overrun grows past 10% + $500: it comes back
+        v2 = pv(d[0][0], d[1], d[2], d[3], "2026-10-05")
+        next(m for m in v2["flag_meta"] if m["key"] == "over:Jar testing")["amount"] = 1200
+        apply_acknowledgements([v2], s.flag_log())
+        assert any(m["key"] == "over:Jar testing" for m in v2["flag_meta"])
+        # restore puts it back
+        s.restore_flag("BHF26001", jar["key"])
+        v3 = pv(d[0][0], d[1], d[2], d[3], "2026-10-05")
+        apply_acknowledgements([v3], s.flag_log())
+        assert any(m["key"] == "over:Jar testing" for m in v3["flag_meta"]) and not v3["flags_ack"]
+    finally:
+        os.environ.pop("DEMO")
+
+
 # ---------------------------------------------------------------- page
 def test_editor_renders():
     from bhf import web

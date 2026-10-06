@@ -199,3 +199,43 @@ class Store:
                     t.ensure_column(title, kind, 110)
         self._update("projects", [(row, changes(row, values))])
         return None
+
+    # ---- "needs attention" acknowledgements (Flag Log sheet)
+    def flag_log(self) -> list[dict]:
+        if self.demo or not config.SHEET_FLAGS:
+            return getattr(self, "_flags", [])
+        if getattr(self, "_flags_at", 0) != self.at:          # reload with the rest of the data
+            from .smartsheet_db import Table
+            self._flag_table = Table(config.SHEET_FLAGS)
+            self._flags = self._flag_table.load()
+            self._flags_at = self.at
+        return self._flags
+
+    def ack_flag(self, code: str, key: str, kind: str, text: str, amount, reason: str) -> str | None:
+        if not self.demo and not config.SHEET_FLAGS:
+            return "The Flag Log sheet isn't set up (SHEET_FLAGS)."
+        log = self.flag_log()
+        flag = f"{code}:{key}"
+        row = {"Flag": flag, "Project": code, "Kind": kind, "Item": text[:400], "Amount": amount if amount not in (None, "") else None,
+               "Reason": (reason or "").strip()[:400] or None, "Acknowledged": dt.date.today().isoformat()}
+        old = [r for r in log if r.get("Flag") == flag]
+        if not self.demo:
+            if old:
+                self._flag_table.delete([r["_id"] for r in old])
+            row["_id"] = self._flag_table.add([row])[0]["id"]
+        else:
+            row["_id"] = next(self._ids)
+        for r in old:
+            log.remove(r)
+        log.append(row)
+        self._flags = log
+        return None
+
+    def restore_flag(self, code: str, key: str) -> str | None:
+        log = self.flag_log()
+        old = [r for r in log if r.get("Flag") == f"{code}:{key}"]
+        if old and not self.demo:
+            self._flag_table.delete([r["_id"] for r in old])
+        for r in old:
+            log.remove(r)
+        return None

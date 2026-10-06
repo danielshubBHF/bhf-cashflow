@@ -338,32 +338,38 @@ def project_view(p: dict, forecasts: list, txns: list, schedule: list, today: st
                 cash[m][f"{side}_overdue"] += r["amount"]
     curve = build_curve(cash, today)
 
-    # ---- things that need a person
-    flags = []
+    # ---- things that need a person. Each has a stable key (so it can be acknowledged and stay acknowledged
+    # while nothing material changes) and, for overruns, the amount it was raised at.
+    flags, flag_meta = [], []
+
+    def flag(kind, text, t, key, amount=None):
+        flags.append((kind, text, t))
+        flag_meta.append({"key": f"{kind}:{key}", "kind": kind, "text": text, "amount": amount})
+
     for l in lines:
         if l.get("unassigned"):
             for t in l["txns"]:
-                flags.append(("link", f"{t.get('Type')} {t.get('Doc #')} from {t.get('Party')} "
-                                      f"(${num(t.get('Amount')):,.0f}) isn't linked to a forecast", t))
+                flag("link", f"{t.get('Type')} {t.get('Doc #')} from {t.get('Party')} "
+                             f"(${num(t.get('Amount')):,.0f}) isn't linked to a forecast", t, t.get("NetSuite ID") or t.get("Doc #"))
             continue
         if l["late"]:
-            flags.append(("late", f"{l['item']}: expected {l['date']} but no PO yet", None))
+            flag("late", f"{l['item']}: expected {l['date']} but no PO yet", None, l["item"])
         if l["overrun"] > 0.5 and l["direction"] == "Out":
             fx = l["fx"] if l["fx"] > 0 else 0.0
             why = (", all exchange-rate movement" if abs(l["overrun"] - fx) < 1 else
                    f" (${fx:,.0f} of it exchange rate)" if fx else "")
-            flags.append(("over", f"{l['item']}: ${l['overrun']:,.0f} over forecast{why}", None))
+            flag("over", f"{l['item']}: ${l['overrun']:,.0f} over forecast{why}", None, l["item"], round(l["overrun"], 2))
         for o, t in l["pct_gaps"]:
-            flags.append(("terms", f"{l['item']}: {o} milestones add up to {t * 100:g}%, not 100%", None))
+            flag("terms", f"{l['item']}: {o} milestones add up to {t * 100:g}%, not 100%", None, f"{l['item']}|{o}|pct")
         for m in (l["milestones"] if l["open_commit"] > 0.5 else []):    # nothing left to bill: terms don't matter
             if not m.get("Confirmed") and not m.get("Billed Doc"):
-                flags.append(("terms", f"{m.get('PO / Order #')} {m.get('Party')}: payment terms need checking "
-                                       f"({m.get('Terms Text') or 'not read'})", None))
+                flag("terms", f"{m.get('PO / Order #')} {m.get('Party')}: payment terms need checking "
+                              f"({m.get('Terms Text') or 'not read'})", None, m.get("PO / Order #"))
                 break
     for t in pt:
         if (t.get("Type") == "Invoice" and not t.get("Paid Date") and t.get("Due Date")
                 and str(t["Due Date"]) < today):
-            flags.append(("overdue", f"Invoice {t.get('Doc #')} ${num(t.get('Amount')):,.0f} overdue since {t['Due Date']}", None))
+            flag("overdue", f"Invoice {t.get('Doc #')} ${num(t.get('Amount')):,.0f} overdue since {t['Due Date']}", None, t.get("Doc #"))
 
     by_type = defaultdict(float)
     for l in lines:
@@ -388,7 +394,7 @@ def project_view(p: dict, forecasts: list, txns: list, schedule: list, today: st
                                for k, lab in STATUS
                                if (g := [l for l in lines if l["direction"] == d and l["status"] == k])]}
                    for d in ("In", "Out")],
-        "curve": curve, "fy": fy_totals(curve), "fy_now": fy_of(today[:7]), "low": low_point(curve), "flags": flags, "by_type": dict(sorted(by_type.items(), key=lambda x: -x[1])),
+        "curve": curve, "fy": fy_totals(curve), "fy_now": fy_of(today[:7]), "low": low_point(curve), "flags": flags, "flag_meta": flag_meta, "by_type": dict(sorted(by_type.items(), key=lambda x: -x[1])),
         "unfiled": unfiled(pt),
         "ledger": ledger, "position": position(ledger, today), "ledger_lines": ledger_lines(lines, ledger, fy_start(today)),
         "money": {"in": stages(rev), "out": stages(cost)},
@@ -572,3 +578,32 @@ def budget_view(b: dict | None, views: list, today: str, scheduled: dict | None 
         t["outlook"] = round(t["actual_ytd"] + t["secured"], 2)
     t["gap"] = round(t["budget_year"] - t["outlook"], 2)
     return {"fy": b["fy"], "month": cur, "at": b.get("at"), "rows": rows, "projects": projects, **t}
+
+
+# ---- acknowledging "needs attention" items
+
+def still_acknowledged(meta: dict, ack: dict) -> bool:
+    """An acknowledgement holds until the item changes materially: an overrun that has grown by more than
+    10% + $500 since it was acknowledged comes back."""
+    if meta["kind"] == "over" and meta.get("amount") is not None:
+        was = num(ack.get("Amount"))
+        return meta["amount"] <= was * 1.1 + 500
+    return True
+
+
+def apply_acknowledgements(views: list, log: list[dict]) -> int:
+    """Split each project's flags into open ones and acknowledged ones (from the Flag Log). Returns the open count."""
+    by_key = {str(r.get("Flag")): r for r in log if r.get("Flag")}
+    total = 0
+    for v in views:
+        open_, open_meta, done = [], [], []
+        for f, m in zip(v["flags"], v["flag_meta"]):
+            ack = by_key.get(f"{v['code']}:{m['key']}")
+            if ack and still_acknowledged(m, ack):
+                done.append({**m, "ack": ack})
+            else:
+                open_.append(f)
+                open_meta.append(m)
+        v["flags"], v["flag_meta"], v["flags_ack"] = open_, open_meta, done
+        total += len(open_)
+    return total

@@ -51,3 +51,5 @@ envVarGroups:
         sync: false
       - key: SHEET_SCHEDULE
         sync: false
+      - key: SHEET_FLAGS          # "Flag Log" sheet: acknowledged "needs attention" items
+        sync: false
