@@ -56,13 +56,7 @@
       {% if fys %}<span class="seg sm fyseg" role="group" aria-label="Financial year">{% for f in fys %}<button type="button" data-fy="{{ f.fy }}" class="{{ 'on' if f.fy == pick }}" title="{{ f.fy }}: Jul {{ 2000 + f.fy[2:]|int - 1 }} to Jun {{ 2000 + f.fy[2:]|int }}{% if f.from %} · data from {{ f.from }}{% endif %}">{{ f.fy }}</button>{% endfor %}<button type="button" data-fy="All" class="{{ 'on' if pick == 'All' }}">All</button></span>{% endif %}
     </span></div>
   <div class="chartwrap"><canvas class="cashchart" data-pick="{{ pick }}" role="img" aria-label="Cash in and out by month with the running cash position"></canvas></div>
-  <div class="tleg">
-    <span><i style="background:#128a55"></i>Received</span><span><i style="background:rgba(18,138,85,.3)"></i>Expected in</span>
-    <span><i style="background:#0E2A47"></i>Paid out</span><span><i style="background:#9fb2c0"></i>Expected out</span>
-    <span><i class="hatch"></i>Overdue (past due, counted in this month)</span>
-    <span><i class="ln" style="background:#00A4C7"></i>Cash position (actual)</span><span><i class="dash"></i>Projected position</span>
-    <span><i class="past"></i>Past months: actuals only</span>
-  </div>
+  <div class="tleg"><span>Solid bars = happened · faded bars = still expected · balance line dashed after today · hover a month for its reconciliation</span></div>
   <div class="fyline" data-fyline>{% for f in fys %}<span data-fy="{{ f.fy }}"{% if f.fy != pick %} hidden{% endif %}><b>{{ f.fy }}</b> = Jul {{ 2000 + f.fy[2:]|int - 1 }} to Jun {{ 2000 + f.fy[2:]|int }}{% if f.from %} · <b>part year: data from {{ f.from }}</b>{% endif %}{% if f.to %} · data to {{ f.to }}{% endif %} · opening {{ f.opening|money }}, closing {{ f.closing|money }}</span>{% endfor %}{% if fy_note %}<span class="fynote"> · {{ fy_note }}</span>{% endif %}<span data-fy="All"{% if pick != 'All' %} hidden{% endif %}>All months{% if curve and curve[-1].month == 'Undated' %}, plus <b>Undated</b>: amounts with no expected date yet{% endif %}</span></div>
 </section>
 {%- endmacro %}
@@ -147,13 +141,12 @@
 
 {# How to read the cash chart. #}
 {% macro chart_help(live_note='') -%}
-<p class="what">Each month shows money coming in above the line and going out below it, and a line for how much cash the job holds.</p>
+<p class="what">Bars show each month's cash: money in above zero, money out below (left axis). The line is the running cash balance (right axis).</p>
 <table class="tbl"><tbody>
-<tr><td><span class="sw" style="background:#128a55"></span> Received / <span class="sw" style="background:rgba(18,138,85,.3)"></span> expected in</td><td style="text-align:left;white-space:normal">Customer payments: solid once received (NetSuite paid date), light while still to come (invoice due date, milestone date or forecast date).</td></tr>
-<tr><td><span class="sw" style="background:#0E2A47"></span> Paid / <span class="sw" style="background:#9fb2c0"></span> expected out</td><td style="text-align:left;white-space:normal">Supplier payments: solid once paid, light while still to come (bill due date, PO milestone date, or the forecast line's expected date).</td></tr>
-<tr><td><span class="sw hatch"></span> Overdue</td><td style="text-align:left;white-space:normal">Still to come but dated before today. It can only happen from now on, so it is counted in the current month, never in a past one. Past months show actuals only.</td></tr>
-<tr><td>Solid line</td><td style="text-align:left;white-space:normal">Cash position (actual): everything received less everything paid, month by month, up to today.</td></tr>
-<tr><td>Dashed line</td><td style="text-align:left;white-space:normal">Projected position: carries on from today adding what's still expected in and out. Its last point is the final position (= the job's margin before BHF labour, if the contract is all on incoming lines).</td></tr>
+<tr><td><span class="sw" style="background:#128a55"></span> Money in</td><td style="text-align:left;white-space:normal">Customer payments: solid once received (NetSuite paid date), faded while still to come (invoice due date, milestone date or forecast date).</td></tr>
+<tr><td><span class="sw" style="background:#d05541"></span> Money out</td><td style="text-align:left;white-space:normal">Supplier payments: solid once paid, faded while still to come (bill due date, PO milestone date, or the forecast line's expected date).</td></tr>
+<tr><td>Overdue</td><td style="text-align:left;white-space:normal">Still to come but dated before today: it can only happen from now on, so it sits in the current month (the hover box shows how much). Past months show actuals only.</td></tr>
+<tr><td>Cash balance</td><td style="text-align:left;white-space:normal">Everything received less everything paid, month by month: solid up to today, dashed where it's projected. Its last point is the final position.</td></tr>
 <tr><td>Undated</td><td style="text-align:left;white-space:normal">Amounts with no expected date yet, shown at the end under “All”.</td></tr>
 </tbody></table>
 <div class="note"><b>Reading a month.</b> Hover a month: opening position + received + expected in − paid − expected out = closing position. The FY buttons show one Australian financial year (1 Jul to 30 Jun); a year still opens at the real position carried from before it. {{ live_note }}</div>
