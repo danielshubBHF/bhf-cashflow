@@ -93,8 +93,13 @@
     <div><small>Actual to end {{ last.month[:3] if last else '—' }}</small><b>{{ bv.actual_closed|money }}</b>
       <span class="{{ 'neg' if bv.vs_closed < 0 else 'pos' }}">{{ bv.vs_closed|signed }} · {{ '%.0f'|format(bv.pct_closed * 100) }}% of budget</span></div>
     <div><small>{{ bv.month[:3] }} so far (part month)</small><b>{{ bv.actual_current|money }}</b><span>of {{ bv.budget_current|money }} budget</span></div>
+    {% if bv.scheduled_rest is not none %}
+    <div><small>Rest of {{ bv.fy }} by P&amp;L formula</small><b>{{ bv.scheduled_rest|money }}</b><span>live projects, {{ bv.month[:3] }}–Jun · {{ bv.secured|money }} contract still to recognise in all</span></div>
+    <div class="gap"><small>Still to win this year</small><b class="{{ 'neg' if bv.gap > 0 }}">{{ bv.gap|money }}</b><span>budget − actual to end {{ last.month[:3] if last else '' }} − formula for the rest</span></div>
+    {% else %}
     <div><small>Secured, still to recognise</small><b>{{ bv.secured|money }}</b><span>live projects' contracts not yet recognised</span></div>
     <div class="gap"><small>Still to win this year</small><b class="{{ 'neg' if bv.gap > 0 }}">{{ bv.gap|money }}</b><span>budget − actual to date − secured</span></div>
+    {% endif %}
   </div>
   <div class="bud-tables">
     <table class="ct">
@@ -108,16 +113,16 @@
       <tfoot><tr><td>{{ bv.fy }}</td><td class="n">{{ bv.budget_year|money }}</td><td class="n">{{ bv.actual_ytd|money }}</td><td class="n">{{ bv.vs_closed|signed }}<small>closed months</small></td></tr></tfoot>
     </table>
     <table class="ct">
-      <colgroup><col><col style="width:7rem"><col style="width:7rem"><col style="width:7rem"><col style="width:7.5rem"></colgroup>
-      <thead><tr><th>Live project</th><th class="n">Contract</th><th class="n">Recognised before {{ bv.fy }}</th><th class="n">{{ bv.fy }} recognised</th><th class="n">Still to recognise</th></tr></thead>
+      <thead><tr><th>Live project</th><th class="n">Contract</th><th class="n">Recognised before {{ bv.fy }}</th><th class="n">{{ bv.fy }} recognised</th>{% if bv.scheduled_rest is not none %}<th class="n">Rest of {{ bv.fy }} (formula)</th>{% endif %}<th class="n">Still to recognise</th></tr></thead>
       <tbody>
       {% for p in bv.projects %}<tr><td><a href="/p/{{ p.code }}"><b>{{ p.code }}</b> {{ p.name }}</a></td><td class="n">{{ p.contract|money }}</td>
-        <td class="n muted">{{ p.before|money }}</td><td class="n"><b>{{ p.fy|money }}</b></td><td class="n">{{ p.remaining|money if p.remaining else '—' }}</td></tr>{% endfor %}
+        <td class="n muted">{{ p.before|money }}</td><td class="n"><b>{{ p.fy|money }}</b></td>{% if bv.scheduled_rest is not none %}<td class="n">{{ p.scheduled_rest|money if p.scheduled_rest else '—' }}</td>{% endif %}<td class="n">{{ p.remaining|money if p.remaining else '—' }}</td></tr>{% endfor %}
       {% set live_fy = bv.projects|map(attribute='fy')|sum %}
-      {% if (bv.projects_fy - live_fy)|abs >= 0.5 %}<tr class="done"><td>Completed projects</td><td></td><td></td><td class="n">{{ (bv.projects_fy - live_fy)|money }}</td><td></td></tr>{% endif %}
-      {% if bv.other_fy|abs >= 0.5 %}<tr class="done"><td>Other Systems sales <small>not on a project in this app</small></td><td></td><td></td><td class="n">{{ bv.other_fy|money }}</td><td></td></tr>{% endif %}
+      {% set x = bv.scheduled_rest is not none %}
+      {% if (bv.projects_fy - live_fy)|abs >= 0.5 %}<tr class="done"><td>Completed projects</td><td></td><td></td><td class="n">{{ (bv.projects_fy - live_fy)|money }}</td>{% if x %}<td></td>{% endif %}<td></td></tr>{% endif %}
+      {% if bv.other_fy|abs >= 0.5 %}<tr class="done"><td>Other Systems sales <small>not on a project in this app</small></td><td></td><td></td><td class="n">{{ bv.other_fy|money }}</td>{% if x %}<td></td>{% endif %}<td></td></tr>{% endif %}
       </tbody>
-      <tfoot><tr><td>Total</td><td></td><td></td><td class="n">{{ bv.actual_ytd|money }}</td><td class="n">{{ bv.secured|money }}</td></tr></tfoot>
+      <tfoot><tr><td>Total</td><td></td><td></td><td class="n">{{ bv.actual_ytd|money }}</td>{% if x %}<td class="n">{{ bv.scheduled_rest|money }}</td>{% endif %}<td class="n">{{ bv.secured|money }}</td></tr></tfoot>
     </table>
   </div>
   <p class="bud-note">Secured assumes each live project's remaining contract is recognised by 30 June; some may fall into the next year. Recognised = journals releasing each project's Unearned Income into Systems sales, plus invoices posted straight to Systems sales.</p>
@@ -125,4 +130,53 @@
 {% else %}
 <section class="budget"><p class="muted">{{ 'FY budget unavailable: NetSuite could not be reached. Refresh to try again.' }}</p></section>
 {% endif %}
+{%- endmacro %}
+
+
+{% macro pl_card(code, pl) -%}
+<section class="budget plc" id="pl" aria-label="P&L recognition">
+  <div class="ct-head"><h3>P&amp;L recognition</h3>
+    <span>{% if pl.flattened %}Flattened by the standard stages from <b>{{ pl.start_label }}</b>: revenue {{ pl.rev_main|money }}, cost {{ pl.cost_total|money }} (incl. BHF labour {{ pl.labour|money }}){% else %}At or under {{ pl.threshold|money }}: revenue when invoiced, cost when billed{% endif %}
+      · <a href="/p/{{ code }}/pl.csv">Download as spreadsheet</a></span></div>
+  {% if pl.flattened %}
+  <div class="pl-set">
+    <div class="stg-list">{% for s in pl.stages %}<span><b>{{ s.name }}</b> {{ '%.0f'|format(s.pct * 100) }}% · {{ s.months }} month{{ '' if s.months == 1 else 's' }}</span>{% endfor %}</div>
+    <form method="post" action="/p/{{ code }}/pl" class="pl-form">
+      <label>Start month <input type="month" name="start" value="{{ pl.start }}"></label>
+      <label>Months per stage <input name="stages" value="{{ pl.months|join('/') }}" size="10" pattern="\d+(/\d+){4}" title="Five whole numbers, e.g. 2/2/3/2/2"></label>
+      <button class="btn">Save timing</button>
+    </form>
+    <form method="post" action="/p/{{ code }}/pl/lock" class="pl-form" data-confirm="{{ 'Replace the locked baseline with the current timing, revenue and cost?' if pl.locked else 'Lock the current timing, revenue and cost as the baseline?' }}">
+      {% if pl.locked %}<span class="locked">Locked {{ pl.locked_on|mdate }} · baseline {{ pl.base_start_label }}, {{ pl.base_months|join('/') }}</span>{% else %}<span class="unlocked">Not locked yet</span>{% endif %}
+      <button class="btn ghost">{{ 'Replace baseline' if pl.locked else 'Lock baseline' }}</button>
+    </form>
+  </div>
+  {% if pl.variations %}<p class="bud-note">Variations over {{ pl.threshold|money }} catch up from the month they land: {{ pl.variations|join(', ') }}.</p>{% endif %}
+  {% if pl.small %}<p class="bud-note">Recognised when invoiced (at or under {{ pl.threshold|money }}): {{ pl.small|join(', ') }}.</p>{% endif %}
+  {% endif %}
+  <table class="ct">
+    <thead><tr><th>Financial year</th><th class="n">Revenue: formula</th><th class="n">Locked baseline</th><th class="n">Moves vs baseline</th><th class="n">NetSuite actual</th>
+      <th class="n">Cost: formula</th><th class="n">NetSuite actual</th></tr></thead>
+    <tbody>{% for f in pl.fys %}<tr><td><b>{{ f.fy }}</b></td><td class="n"><b>{{ f.rev|money }}</b></td><td class="n muted">{{ f.rev_base|money }}</td>
+      <td class="n {{ 'neg' if f.move_rev < -0.5 else 'pos' if f.move_rev > 0.5 }}">{{ f.move_rev|signed if f.move_rev|abs >= 0.5 else '—' }}</td>
+      <td class="n">{{ f.rev_act|money if pl.has_actual else '—' }}</td><td class="n">{{ f.cost|money }}</td><td class="n">{{ f.cost_act|money if pl.has_actual else '—' }}</td></tr>{% endfor %}</tbody>
+  </table>
+  <details class="pl-months"><summary>Month by month: formula vs what NetSuite has journalled</summary>
+    <table class="ct">
+      <thead><tr><th>Month</th><th>Stage</th><th class="n">Revenue: formula</th><th class="n">NetSuite actual</th><th class="n">Difference</th><th class="n">Cost: formula</th><th class="n">NetSuite actual</th><th class="n">Difference</th></tr></thead>
+      <tbody>
+      {% for r in pl.rows %}
+        {% if loop.first or r.fy != loop.previtem.fy %}<tr class="grp"><td colspan="8">{{ r.fy }}</td></tr>{% endif %}
+        <tr class="{{ 'muted-row' if not r.past and not r.current }}"><td>{{ r.label }}{% if r.current %} <small>part month</small>{% endif %}</td>
+          <td>{{ pl.stages[r.stage].name if r.stage is not none else '' }}</td>
+          <td class="n">{{ r.rev|money if r.rev else '—' }}</td><td class="n">{{ r.rev_act|money if r.rev_act else '—' }}</td>
+          <td class="n {{ 'neg' if r.rev_diff is not none and r.rev_diff < -0.5 else 'pos' if r.rev_diff is not none and r.rev_diff > 0.5 }}">{{ r.rev_diff|signed if r.rev_diff is not none and r.rev_diff|abs >= 0.5 else '' }}</td>
+          <td class="n">{{ r.cost|money if r.cost else '—' }}</td><td class="n">{{ r.cost_act|money if r.cost_act else '—' }}</td>
+          <td class="n">{{ r.cost_diff|signed if r.cost_diff is not none and r.cost_diff|abs >= 0.5 else '' }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="bud-note">Difference = NetSuite actual − formula, for months up to now: negative means the P&amp;L is behind the formula. "Moves vs baseline" is what the amended timing moves into (+) or out of (−) each year compared with the locked baseline: the year-end journal to move it.</p>
+  </details>
+</section>
 {%- endmacro %}

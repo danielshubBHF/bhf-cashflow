@@ -528,7 +528,7 @@ def fy_months(fy: str) -> list[str]:
     return [f"{MONTHS[m - 1]} {y - 1 if m >= 7 else y}" for m in (7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6)]
 
 
-def budget_view(b: dict | None, views: list, today: str) -> dict | None:
+def budget_view(b: dict | None, views: list, today: str, scheduled: dict | None = None) -> dict | None:
     """Budget vs actual for the year, and how much of the rest is already won.
 
     actual        = Systems Sales revenue recognised in the P&L (NetSuite posting periods)
@@ -559,6 +559,14 @@ def budget_view(b: dict | None, views: list, today: str) -> dict | None:
     t["secured"] = round(sum(p["remaining"] for p in projects), 2)
     t["projects_fy"] = round(sum(r["fy"] for r in rec.values()), 2)        # live + complete projects in the app
     t["other_fy"] = round(t["actual_ytd"] - t["projects_fy"], 2)           # Systems sales not on a project here
-    t["outlook"] = round(t["actual_ytd"] + t["secured"], 2)
+    # Rest of the year by the P&L formula (from the current month), else every remaining contract dollar.
+    if scheduled is not None:
+        for p in projects:
+            p["scheduled_rest"] = scheduled.get(p["code"], 0.0)
+        t["scheduled_rest"] = round(sum(scheduled.values()), 2)
+        t["outlook"] = round(t["actual_closed"] + t["scheduled_rest"], 2)
+    else:
+        t["scheduled_rest"] = None
+        t["outlook"] = round(t["actual_ytd"] + t["secured"], 2)
     t["gap"] = round(t["budget_year"] - t["outlook"], 2)
     return {"fy": b["fy"], "month": cur, "at": b.get("at"), "rows": rows, "projects": projects, **t}

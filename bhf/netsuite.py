@@ -1,6 +1,7 @@
 """NetSuite: SuiteQL over REST with token-based auth, plus the PDF RESTlet."""
 import base64
 import os
+from collections import defaultdict
 
 import requests
 from requests_oauthlib import OAuth1
@@ -12,6 +13,7 @@ TYPE_NAMES = {"PurchOrd": "PO", "SalesOrd": "Sales Order", "VendBill": "Bill", "
               "CardChrg": "Card", "ExpRept": "Expense", "InvAdjst": "Stock issue",
               "CustInvc": "Invoice", "CustCred": "Credit Note"}
 INCOMING = {"CustInvc", "CustCred", "SalesOrd"}
+MONTH_NO = {m: i for i, m in enumerate(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], 1)}
 
 
 class NetSuite:
@@ -127,6 +129,56 @@ class NetSuite:
                     out[c]["all"] += float(r.get("all_") or 0)
                     out[c]["fy"] += float(r.get("fy") or 0)
         return {c: {k: round(v, 2) for k, v in d.items()} for c, d in out.items()}
+
+    def pl_actuals(self, projects: list[tuple]) -> dict[str, dict]:
+        """What NetSuite's P&L actually shows per project per month (posting period -> 'YYYY-MM').
+        projects = [(code, job_id, unearned_acct_id, wip_acct_id)].
+          rev:  Systems Sales (407x) credited by journals touching the project's Unearned account, plus
+                customer invoices whose project lines post straight to 407x
+          cost: cost of sales (5xxx) debited by journals touching the project's WIP account, plus supplier
+                bills coded to the project that post straight to 5xxx"""
+        out = {c: {"rev": defaultdict(float), "cost": defaultdict(float)} for c, *_ in projects}
+
+        def period(p):
+            mon, yr = str(p).split()
+            return f"{yr}-{MONTH_NO[mon]:02d}"
+
+        def journals(side, accts: dict, like: str, sign: int):
+            if not accts:
+                return
+            for r in self.query(f"""
+                SELECT u.account AS key, BUILTIN.DF(t.postingperiod) AS p, ROUND(SUM(tal.amount), 2) AS amt
+                FROM transactionaccountingline tal JOIN transaction t ON t.id = tal.transaction
+                JOIN (SELECT DISTINCT x.transaction, x.account FROM transactionaccountingline x
+                      WHERE x.account IN ({",".join(accts)}) AND x.posting = 'T') u ON u.transaction = t.id
+                WHERE tal.posting = 'T' AND t.type = 'Journal' AND BUILTIN.DF(tal.account) LIKE '{like}'
+                GROUP BY u.account, BUILTIN.DF(t.postingperiod)"""):
+                out[accts[str(r["key"])]][side][period(r["p"])] += sign * float(r["amt"] or 0)
+
+        journals("rev", {str(int(float(u))): c for c, _, u, _ in projects if u}, "407%", -1)
+        journals("cost", {str(int(float(w))): c for c, _, _, w in projects if w}, "5%", 1)
+        job_of = {str(int(float(j))): c for c, j, _, _ in projects if j}
+        if job_of:
+            jobs = ",".join(job_of)
+            for r in self.query(f"""
+                SELECT tl.entity AS key, BUILTIN.DF(t.postingperiod) AS p, ROUND(SUM(tal.amount), 2) AS amt
+                FROM transactionaccountingline tal
+                JOIN transactionline tl ON tl.transaction = tal.transaction AND tl.id = tal.transactionline
+                JOIN transaction t ON t.id = tal.transaction
+                WHERE tal.posting = 'T' AND t.type IN ('CustInvc', 'CustCred') AND BUILTIN.DF(tal.account) LIKE '407%'
+                  AND tl.entity IN ({jobs})
+                GROUP BY tl.entity, BUILTIN.DF(t.postingperiod)"""):
+                if str(r["key"]) in job_of:
+                    out[job_of[str(r["key"])]]["rev"][period(r["p"])] -= float(r["amt"] or 0)
+            for r in self.query(f"""
+                SELECT t.custbody_project AS key, BUILTIN.DF(t.postingperiod) AS p, ROUND(SUM(tal.amount), 2) AS amt
+                FROM transactionaccountingline tal JOIN transaction t ON t.id = tal.transaction
+                WHERE tal.posting = 'T' AND t.type IN ('VendBill', 'VendCred') AND BUILTIN.DF(tal.account) LIKE '5%'
+                  AND t.custbody_project IN ({jobs})
+                GROUP BY t.custbody_project, BUILTIN.DF(t.postingperiod)"""):
+                if str(r["key"]) in job_of:
+                    out[job_of[str(r["key"])]]["cost"][period(r["p"])] += float(r["amt"] or 0)
+        return {c: {k: {m: round(a, 2) for m, a in d.items()} for k, d in v.items()} for c, v in out.items()}
 
     def stock_issue_pdf(self, txn_id: int):
         """NetSuite has no print template for inventory adjustments: build a one-page record instead."""

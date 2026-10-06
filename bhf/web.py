@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, config, editor, model
+from . import auth, config, editor, model, pl
 from .store import Store
 
 log = logging.getLogger("web")
@@ -73,8 +73,14 @@ def ctx(request, **kw):
     projects, forecasts, txns, sched = load()
     pf = model.portfolio(projects, forecasts, txns, sched)
     synced = last_synced(txns)
-    bv = model.budget_view(store.budget(), pf["views"], dt.date.today().isoformat())
-    return {"request": request, "pf": pf, "bv": bv, "tabs": [(v["code"], v["name"]) for v in pf["views"]],
+    today = dt.date.today().isoformat()
+    b = store.budget()
+    rows = {p.get("Project"): p for p in projects}
+    pls = {v["code"]: pl.project_pl(rows[v["code"]], v, today, ((b or {}).get("pl_actuals") or {}).get(v["code"]) if b else None)
+           for v in pf["views"]}
+    fy = model.fy_of(today[:7])
+    bv = model.budget_view(b, pf["views"], today, {k: pl.fy_remaining(x, fy, today) for k, x in pls.items()})
+    return {"request": request, "pf": pf, "bv": bv, "pls": pls, "tabs": [(v["code"], v["name"]) for v in pf["views"]],
             "user": request.session.get("user"), "demo": store.demo,
             "as_at": "demo data" if store.demo else (synced or "not synced yet"), **kw}
 
@@ -96,9 +102,68 @@ def project(request: Request, code: str):
         return RedirectResponse("/")
     projects, forecasts, *_ = load()
     c["v"] = v
+    c["pl"] = c["pls"][code]
     c["forecast_items"] = [f["Item"] for f in forecasts if f.get("Project") == code]
     c["err"] = request.query_params.get("err")
     return tpl.TemplateResponse(request, "project.html", c)
+
+
+@app.post("/p/{code}/pl")
+async def save_pl(request: Request, code: str):
+    """The PM's P&L timing: start month and months per stage (e.g. 2/2/3/2/2)."""
+    if (r := auth.require(request)):
+        return r
+    form = await request.form()
+    start, stages = str(form.get("start") or "").strip(), str(form.get("stages") or "").strip()
+    err = None
+    if start and not pl.ym(start):
+        err = "Start month must look like 2026-04."
+    elif stages and pl.parse_months(stages) != [int(x) for x in stages.replace(",", "/").split("/") if x.strip().isdigit()]:
+        err = "Months per stage must be five whole numbers, e.g. 2/2/3/2/2."
+    if not err:
+        err = _safely(store.save_project, code, {"P&L Start": f"{pl.ym(start)}-01" if start else None,
+                                                 "P&L Stages": "/".join(map(str, pl.parse_months(stages))) if stages else None})
+    return _done(request, code, err, "pl")
+
+
+@app.post("/p/{code}/pl/lock")
+def lock_pl(request: Request, code: str):
+    """Lock today's timing, revenue and cost as the baseline (or replace the baseline)."""
+    if (r := auth.require(request)):
+        return r
+    c = ctx(request, active=code)
+    x = c["pls"].get(code)
+    if not x:
+        return _done(request, code, "Unknown project.", "pl")
+    err = _safely(store.save_project, code, {
+        "P&L Locked": dt.date.today().isoformat(), "P&L Locked Start": x["start"] + "-01",
+        "P&L Locked Stages": "/".join(map(str, x["months"])), "P&L Locked Revenue": x["rev_main"], "P&L Locked Cost": x["cost_total"]})
+    return _done(request, code, err, "pl")
+
+
+@app.get("/p/{code}/pl.csv")
+def pl_csv(request: Request, code: str):
+    """The project's P&L schedule as a spreadsheet (opens in Excel)."""
+    if (r := auth.require(request)):
+        return r
+    import csv, io
+    from fastapi.responses import Response
+    x = ctx(request, active=code)["pls"].get(code)
+    if not x:
+        return RedirectResponse("/")
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Month", "FY", "Stage", "Revenue (formula)", "Revenue (locked baseline)", "Revenue (NetSuite actual)",
+                "Revenue difference", "Cost (formula)", "Cost (locked baseline)", "Cost (NetSuite actual)", "Cost difference"])
+    names = [s["name"] for s in x["stages"]]
+    for r in x["rows"]:
+        w.writerow([r["label"], r["fy"], names[r["stage"]] if r["stage"] is not None else "", r["rev"], r["rev_base"], r["rev_act"],
+                    "" if r["rev_diff"] is None else r["rev_diff"], r["cost"], r["cost_base"], r["cost_act"],
+                    "" if r["cost_diff"] is None else r["cost_diff"]])
+    for f in x["fys"]:
+        w.writerow([f"{f['fy']} total", f["fy"], "", f["rev"], f["rev_base"], f["rev_act"], "", f["cost"], f["cost_base"], f["cost_act"], ""])
+    return Response(buf.getvalue().encode("utf-8-sig"), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{code} P&L schedule.csv"'})
 
 
 @app.post("/link")

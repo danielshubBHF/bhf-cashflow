@@ -146,3 +146,9 @@ document.addEventListener("click", e => {
   b.setAttribute("aria-expanded", String(open));
   document.querySelectorAll(`.ct tr.stg[data-for="${CSS.escape(tr.dataset.k)}"]`).forEach(r => { r.hidden = !open; });
 });
+
+// Forms that change something important ask first (e.g. locking the P&L baseline).
+document.addEventListener("submit", e => {
+  const m = e.target.dataset && e.target.dataset.confirm;
+  if (m && !confirm(m)) e.preventDefault();
+});

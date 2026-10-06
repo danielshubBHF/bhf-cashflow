@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% from "_macros.html" import pipe, legend, reconcile, cash_card, fy_table, fy_compare, drawer, explain, basis, stage_strip, stage_cells, stage_heads, chart_help, position_strip, line_ledger, line_panel %}{% from "_editor.html" import forecast_editor %}{% from "_simple.html" import fy_recon, incoming_table, outgoing_table %}
+{% extends "base.html" %}{% from "_macros.html" import pipe, legend, reconcile, cash_card, fy_table, fy_compare, drawer, explain, basis, stage_strip, stage_cells, stage_heads, chart_help, position_strip, line_ledger, line_panel %}{% from "_editor.html" import forecast_editor %}{% from "_simple.html" import fy_recon, incoming_table, outgoing_table, pl_card %}
 {% block title %}{{ v.code }} {{ v.name }} · Project Cashflow{% endblock %}
 {% block main %}
 {% set c = v.cost %}{% set p = v.position %}
@@ -25,6 +25,8 @@
   {{ incoming_table(v.ledger_lines['in'], p, v.fy_now) }}
   {{ outgoing_table(v.ledger_lines.out, p, v.fy_now) }}
 </div>
+
+{{ pl_card(v.code, pl) if pl }}
 
 <div class="pdash">
 

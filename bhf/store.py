@@ -172,10 +172,30 @@ class Store:
             ns = NetSuite()
             projects = [(p["Project"], p.get("NetSuite Job ID"), p.get("Unearned Acct ID"))
                         for p in self.load()[0] if p.get("NetSuite Job ID") and p.get("Status") != "Closed"]
+            rows = [p for p in self.load()[0] if p.get("NetSuite Job ID") and p.get("Status") not in model.LIVE_OUT]
             self.bud = {"fy": fy, "budget": ns.systems_budget(fy), "actual": ns.systems_actual(model.fy_months(fy)),
                         "recognised": ns.recognised(projects, model.fy_start(today)),
+                        "pl_actuals": ns.pl_actuals([(p["Project"], p.get("NetSuite Job ID"), p.get("Unearned Acct ID"),
+                                                      p.get("WIP Acct ID")) for p in rows]),
                         "at": dt.datetime.now().strftime("%d %b %y %H:%M")}
             self.bud_at = time.time()
         except Exception:
             log.exception("budget from NetSuite failed")       # keep the last good copy, if any
         return self.bud
+
+    # ---- P&L timing (Projects sheet): the PM's start month and months per stage, and the locked baseline
+    PL_COLUMNS = {"P&L Start": "DATE", "P&L Stages": "TEXT_NUMBER", "P&L Locked": "DATE", "P&L Locked Start": "DATE",
+                  "P&L Locked Stages": "TEXT_NUMBER", "P&L Locked Revenue": "TEXT_NUMBER", "P&L Locked Cost": "TEXT_NUMBER"}
+
+    def save_project(self, code: str, values: dict) -> str | None:
+        projects = self.load()[0]
+        row = next((p for p in projects if p.get("Project") == code), None)
+        if row is None:
+            return "Unknown project."
+        if not self.demo:
+            t = self.table("projects")
+            for title, kind in self.PL_COLUMNS.items():
+                if title in values:
+                    t.ensure_column(title, kind, 110)
+        self._update("projects", [(row, changes(row, values))])
+        return None
