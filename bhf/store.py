@@ -5,12 +5,18 @@ next page render re-runs the model on cached data straight away (no reload, no w
 In DEMO mode the fixture is the "sheet" and edits live in memory until the server restarts.
 """
 import copy
+import datetime as dt
 import itertools
+import logging
 import os
 import time
 
 from . import config
+from . import model
 from .model import norm
+
+log = logging.getLogger("store")
+BUDGET_SECONDS = 3600              # the FY budget and P&L actuals change slowly: ask NetSuite hourly
 
 NAMES = ("projects", "forecasts", "transactions", "schedule")
 
@@ -38,6 +44,7 @@ def group_row(forecasts: list, code: str):
 class Store:
     def __init__(self):
         self.at, self.data, self._tables = 0.0, None, {}
+        self.bud, self.bud_at = None, 0.0
         self._ids = itertools.count(1)
 
     @property
@@ -150,3 +157,25 @@ class Store:
             self.table("schedule").delete([row["_id"]])
         self.load()[3].remove(row)
         return None
+
+    # ---- FY budget vs actual (straight from NetSuite; not kept in Smartsheet)
+    def budget(self, force=False) -> dict | None:
+        today = dt.date.today().isoformat()
+        fy = model.fy_of(today[:7])
+        if self.demo:
+            from tests.fixture_26001 import BUDGET
+            return BUDGET
+        if not force and self.bud and time.time() - self.bud_at < BUDGET_SECONDS:
+            return self.bud
+        try:
+            from .netsuite import NetSuite
+            ns = NetSuite()
+            projects = [(p["Project"], p.get("NetSuite Job ID"), p.get("Unearned Acct ID"))
+                        for p in self.load()[0] if p.get("NetSuite Job ID") and p.get("Status") != "Closed"]
+            self.bud = {"fy": fy, "budget": ns.systems_budget(fy), "actual": ns.systems_actual(model.fy_months(fy)),
+                        "recognised": ns.recognised(projects, model.fy_start(today)),
+                        "at": dt.datetime.now().strftime("%d %b %y %H:%M")}
+            self.bud_at = time.time()
+        except Exception:
+            log.exception("budget from NetSuite failed")       # keep the last good copy, if any
+        return self.bud

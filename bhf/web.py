@@ -73,7 +73,8 @@ def ctx(request, **kw):
     projects, forecasts, txns, sched = load()
     pf = model.portfolio(projects, forecasts, txns, sched)
     synced = last_synced(txns)
-    return {"request": request, "pf": pf, "tabs": [(v["code"], v["name"]) for v in pf["views"]],
+    bv = model.budget_view(store.budget(), pf["views"], dt.date.today().isoformat())
+    return {"request": request, "pf": pf, "bv": bv, "tabs": [(v["code"], v["name"]) for v in pf["views"]],
             "user": request.session.get("user"), "demo": store.demo,
             "as_at": "demo data" if store.demo else (synced or "not synced yet"), **kw}
 
@@ -177,6 +178,7 @@ def refresh(request: Request):
     if (r := auth.require(request)):
         return r
     load(force=True)
+    store.budget(force=True)
     return RedirectResponse(request.headers.get("referer", "/"))
 
 

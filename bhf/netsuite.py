@@ -68,6 +68,66 @@ class NetSuite:
             GROUP BY ntl.previousdoc""")
         return {int(r["doc"]): r["paid"] for r in rows}
 
+    # ---- FY budget tracking: "Systems Sales" (accounts 4071-4079) budget vs recognised revenue, by period
+    SYSTEMS = "BUILTIN.DF({col}) LIKE '407%'"
+
+    def systems_budget(self, fy: str) -> dict[str, float]:
+        """{'Jul 2026': 559100.0, ...} for 'FY27' (NetSuite budget year 'FY 2027')."""
+        rows = self.query(f"""
+            SELECT BUILTIN.DF(bm.period) AS p, ROUND(SUM(bm.amount), 2) AS amt
+            FROM budgets b JOIN budgetsmachine bm ON bm.budget = b.id
+            WHERE BUILTIN.DF(b.year) = 'FY {2000 + int(fy[2:])}' AND {self.SYSTEMS.format(col='b.account')}
+            GROUP BY BUILTIN.DF(bm.period)""")
+        return {r["p"]: float(r["amt"] or 0) for r in rows}
+
+    def systems_actual(self, periods: list[str]) -> dict[str, float]:
+        """Revenue posted to the Systems Sales accounts (credits, so sign-flipped) by posting period."""
+        names = ",".join("'" + p.replace("'", "''") + "'" for p in periods)
+        rows = self.query(f"""
+            SELECT BUILTIN.DF(t.postingperiod) AS p, ROUND(SUM(tal.amount), 2) AS amt
+            FROM transactionaccountingline tal JOIN transaction t ON t.id = tal.transaction
+            WHERE tal.posting = 'T' AND {self.SYSTEMS.format(col='tal.account')} AND BUILTIN.DF(t.postingperiod) IN ({names})
+            GROUP BY BUILTIN.DF(t.postingperiod)""")
+        return {r["p"]: -float(r["amt"] or 0) for r in rows}
+
+    def recognised(self, projects: list[tuple], fy_start: str) -> dict[str, dict]:
+        """Systems Sales revenue recognised per project, as it lands in the P&L (407x accounts):
+          * monthly journals touching the project's Unearned Income account (their 407x credits; Unearned/WIP
+            netting entries carry no 407x line, so they don't count), plus
+          * customer invoices coded to the project that post straight to 407x (no Unearned account used).
+        projects = [(code, netsuite_job_id, unearned_acct_id or None)]. Returns {code: {'all': x, 'fy': y}}."""
+        out = {c: {"all": 0.0, "fy": 0.0} for c, _, _ in projects}
+        fy = f"t.trandate >= TO_DATE('{fy_start}', 'YYYY-MM-DD')"
+        acct_of = {str(int(float(u))): c for c, _, u in projects if u}
+        if acct_of:
+            for r in self.query(f"""
+                SELECT u.account AS key, ROUND(SUM(-tal.amount), 2) AS all_, ROUND(SUM(CASE WHEN {fy} THEN -tal.amount ELSE 0 END), 2) AS fy
+                FROM transactionaccountingline tal JOIN transaction t ON t.id = tal.transaction
+                JOIN (SELECT DISTINCT x.transaction, x.account FROM transactionaccountingline x
+                      WHERE x.account IN ({",".join(acct_of)}) AND x.posting = 'T') u ON u.transaction = t.id
+                WHERE tal.posting = 'T' AND t.type = 'Journal' AND {self.SYSTEMS.format(col='tal.account')}
+                GROUP BY u.account"""):
+                c = acct_of[str(r["key"])]
+                out[c]["all"] += float(r.get("all_") or 0)
+                out[c]["fy"] += float(r.get("fy") or 0)
+        job_of = {str(int(float(j))): c for c, j, _ in projects if j}
+        if job_of:
+            jobs = ",".join(job_of)
+            for r in self.query(f"""
+                SELECT tl.entity AS key, ROUND(SUM(-tal.amount), 2) AS all_,
+                       ROUND(SUM(CASE WHEN {fy} THEN -tal.amount ELSE 0 END), 2) AS fy
+                FROM transactionaccountingline tal
+                JOIN transactionline tl ON tl.transaction = tal.transaction AND tl.id = tal.transactionline
+                JOIN transaction t ON t.id = tal.transaction
+                WHERE tal.posting = 'T' AND t.type IN ('CustInvc', 'CustCred') AND {self.SYSTEMS.format(col='tal.account')}
+                  AND tl.entity IN ({jobs})
+                GROUP BY tl.entity"""):
+                c = job_of.get(str(r["key"]))
+                if c:
+                    out[c]["all"] += float(r.get("all_") or 0)
+                    out[c]["fy"] += float(r.get("fy") or 0)
+        return {c: {k: round(v, 2) for k, v in d.items()} for c, d in out.items()}
+
     def stock_issue_pdf(self, txn_id: int):
         """NetSuite has no print template for inventory adjustments: build a one-page record instead."""
         from .pdfmake import record_pdf

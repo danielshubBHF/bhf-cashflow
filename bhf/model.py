@@ -518,3 +518,47 @@ def portfolio(projects, forecasts, txns, schedule, today=None):
     return {"views": views, "complete": complete, "totals": totals, "curve": curve, "curve_fy": curve_fy,
             "fy": fy_totals(curve_fy), "fy_now": fy_of(today[:7]), "fy_all": fy_summary(fy_views, today),
             "low": low_point(curve)}
+
+
+# ---- FY budget tracking: Systems Sales (4071-4079) budget vs revenue recognised in the P&L
+
+def fy_months(fy: str) -> list[str]:
+    """NetSuite period names for a financial year: 'FY27' -> ['Jul 2026', ..., 'Jun 2027']."""
+    y = 2000 + int(fy[2:])
+    return [f"{MONTHS[m - 1]} {y - 1 if m >= 7 else y}" for m in (7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6)]
+
+
+def budget_view(b: dict | None, views: list, today: str) -> dict | None:
+    """Budget vs actual for the year, and how much of the rest is already won.
+
+    actual        = Systems Sales revenue recognised in the P&L (NetSuite posting periods)
+    closed months = months before the current one; the current month is shown separately (part month)
+    secured       = contract value of live projects not yet recognised (could slip past 30 June)
+    outlook       = actual to date + secured;  gap = full-year budget - outlook (needs new work)"""
+    if not b:
+        return None
+    months = fy_months(b["fy"])
+    cur = f"{MONTHS[int(today[5:7]) - 1]} {today[:4]}"
+    ci = months.index(cur) if cur in months else len(months)
+    rows = [{"month": m, "label": m[:3] + " " + m[-2:], "budget": round(b["budget"].get(m, 0.0), 2),
+             "actual": round(b["actual"].get(m, 0.0), 2), "closed": i < ci, "current": i == ci} for i, m in enumerate(months)]
+    closed = [r for r in rows if r["closed"]]
+    now = next((r for r in rows if r["current"]), None)
+    t = {"budget_year": round(sum(r["budget"] for r in rows), 2),
+         "budget_closed": round(sum(r["budget"] for r in closed), 2), "actual_closed": round(sum(r["actual"] for r in closed), 2),
+         "budget_current": now["budget"] if now else 0.0, "actual_current": now["actual"] if now else 0.0}
+    t["actual_ytd"] = round(t["actual_closed"] + t["actual_current"], 2)
+    t["vs_closed"] = round(t["actual_closed"] - t["budget_closed"], 2)
+    t["pct_closed"] = t["actual_closed"] / t["budget_closed"] if t["budget_closed"] else 0.0
+    rec = b.get("recognised", {})
+    projects = []
+    for v in views:
+        r = rec.get(v["code"], {"all": 0.0, "fy": 0.0})
+        projects.append({"code": v["code"], "name": v["name"], "contract": v["contract"], "recognised": r["all"], "fy": r["fy"],
+                         "before": round(r["all"] - r["fy"], 2), "remaining": round(max(0.0, v["contract"] - r["all"]), 2)})
+    t["secured"] = round(sum(p["remaining"] for p in projects), 2)
+    t["projects_fy"] = round(sum(r["fy"] for r in rec.values()), 2)        # live + complete projects in the app
+    t["other_fy"] = round(t["actual_ytd"] - t["projects_fy"], 2)           # Systems sales not on a project here
+    t["outlook"] = round(t["actual_ytd"] + t["secured"], 2)
+    t["gap"] = round(t["budget_year"] - t["outlook"], 2)
+    return {"fy": b["fy"], "month": cur, "at": b.get("at"), "rows": rows, "projects": projects, **t}

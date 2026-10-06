@@ -69,6 +69,20 @@ def test_cash_now_splits_at_financial_year_start():
     from bhf.model import fy_start
     assert fy_start("2026-10-06") == "2026-07-01" and fy_start("2027-03-01") == "2026-07-01" and fy_start("2026-06-30") == "2025-07-01"
 
+def test_budget_vs_actual_and_still_to_win():
+    from bhf.model import budget_view, fy_months
+    from tests.fixture_26001 import BUDGET
+    assert fy_months("FY27")[0] == "Jul 2026" and fy_months("FY27")[-1] == "Jun 2027"
+    bv = budget_view(BUDGET, [v], "2026-10-06")
+    assert bv["budget_year"] == 6925000 and bv["budget_closed"] == 1285700           # Jul-Sep closed, Oct open
+    assert bv["actual_closed"] == 845569 and bv["actual_current"] == 35065 and bv["actual_ytd"] == 880634
+    assert bv["vs_closed"] == 845569 - 1285700
+    p = bv["projects"][0]
+    assert p["fy"] == 363309 and p["before"] == 1059189 - 363309 and p["remaining"] == 1614700 - 1059189
+    assert bv["secured"] == 555511 and bv["gap"] == 6925000 - 880634 - 555511
+    assert bv["other_fy"] == 880634 - 363309                                         # sales not on a project in the app
+    assert [r["current"] for r in bv["rows"]].index(True) == 3 and budget_view(None, [v], "2026-10-06") is None
+
 def test_breakdown_adds_up_on_every_line():
     for l in v["lines_out"] + v["lines_in"]:
         if not l.get("unassigned"):
@@ -222,7 +236,7 @@ def test_ledger_grouped_by_line_in_sheet_order():
 
 if __name__ == "__main__":
     for f in (test_ties_to_netsuite, test_bucket_logic, test_fx_gain_is_under_not_to_place, test_fx_overrun_is_labelled,
-              test_closed_po_stops_counting_unbilled_balance, test_standalone_bill_uses_up_open_po, test_terms_flag_only_while_money_is_still_to_come, test_cash_now_splits_at_financial_year_start, test_breakdown_adds_up_on_every_line, test_cash_curve_balances,
+              test_closed_po_stops_counting_unbilled_balance, test_standalone_bill_uses_up_open_po, test_terms_flag_only_while_money_is_still_to_come, test_cash_now_splits_at_financial_year_start, test_budget_vs_actual_and_still_to_win, test_breakdown_adds_up_on_every_line, test_cash_curve_balances,
               test_contract_split_original_and_variations, test_overdue_moves_to_current_month, test_actual_position_and_projection,
               test_fy_totals, test_editor_blocks_group_by_status,
               test_money_stages_add_up, test_ledger_is_the_cashflow_statement, test_complete_projects_count_only_for_financial_years,

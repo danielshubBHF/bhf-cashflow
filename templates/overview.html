@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% from "_macros.html" import pipe, legend, cash_card, drawer, explain, basis, stage_cells, stage_heads, chart_help, position_strip, stage_strip %}
-{% from "_simple.html" import fy_recon %}
+{% from "_simple.html" import fy_recon, budget_card %}
 {% block main %}
 {% set t = pf.totals %}{% set p = t.position %}
 <div class="pagebar">
@@ -9,6 +9,9 @@
   {% if t.flags %}<span class="pill warn">{{ t.flags }} item{{ '' if t.flags == 1 else 's' }} need attention</span>{% endif %}
 </div>
 
+{{ budget_card(bv) }}
+
+<h3 class="sect">Cash on live projects</h3>
 <p class="headline">
   <button type="button" class="lk" data-open="d-o-contract">Contracts <b>{{ t.contract|money }}</b></button> <small>({{ t.contract_orig|money }} + {{ t.variations|money }} variations)</small>
   · <button type="button" class="lk" data-open="d-o-out">Expected cost <b>{{ t.cost_expected|money }}</b></button>

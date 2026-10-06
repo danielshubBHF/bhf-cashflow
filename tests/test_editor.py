@@ -246,7 +246,10 @@ def test_statement_and_drills_render():
     q = pf["views"][0]["position"]
     assert f"{q['opening']:,.0f}" in page and f"{q['out_fy']:,.0f}" in page               # FY split shown
     assert page.count('id="fc-') == len(pf["views"][0]["forecast_lines"]) + 2           # each form once (panels borrow it)
-    ov = web.tpl.env.get_template("overview.html").render(**base, active="overview")
+    from bhf.model import budget_view
+    from tests.fixture_26001 import BUDGET
+    ov = web.tpl.env.get_template("overview.html").render(**base, bv=budget_view(BUDGET, pf["views"], "2026-10-06"), active="overview")
+    assert "FY27 Systems sales vs budget" in ov and "6,925,000" in ov and "Still to win this year" in ov
     assert "BHF25009" not in ov.split('class="odash"')[0]                          # not a tab, not in the live table
     assert "Financial years" in ov and "data from Dec 2025" in ov and "Old job" in ov   # but in the FY breakdown
     for d in ("d-o-in", "d-o-out", "d-o-now", "d-o-final", "d-o-contract", "d-fyall", "d-chart"):

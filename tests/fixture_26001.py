@@ -66,3 +66,13 @@ SCHEDULE = [
     S("PO006182", "Aquacorp", "Out", 1, "20% on order", .2, 2607, "2026-10-15"),
     S("PO006182", "Aquacorp", "Out", 2, "80% on delivery", .8, 10428, "2026-11-15"),
 ]
+
+# FY27 Systems Sales budget vs recognised revenue, as NetSuite reports it (budget and actuals Jul-Oct 26).
+BUDGET = {
+    "fy": "FY27", "at": "demo data",
+    "budget": {"Jul 2026": 559100, "Aug 2026": 253300, "Sep 2026": 473300, "Oct 2026": 493300, "Nov 2026": 503300,
+               "Dec 2026": 473300, "Jan 2027": 677400, "Feb 2027": 812400, "Mar 2027": 662400, "Apr 2027": 692400,
+               "May 2027": 662400, "Jun 2027": 662400},
+    "actual": {"Jul 2026": 305529, "Aug 2026": 278020, "Sep 2026": 262020, "Oct 2026": 35065},
+    "recognised": {"BHF26001": {"all": 1059189.0, "fy": 363309.0}},
+}

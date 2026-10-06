@@ -16,6 +16,8 @@
 <p class="headline">
   <button type="button" class="lk" data-open="d-contract">Contract <b>{{ v.contract|money }}</b></button>{% if v.variations %} <small>({{ v.contract_orig|money }} + {{ v.variations|money }} variations)</small>{% endif %}
   · <button type="button" class="lk" data-open="d-out">Expected cost <b>{{ c.expected|money }}</b></button>
+  {% set bp = (bv.projects|selectattr('code', 'equalto', v.code)|list|first) if bv else None %}
+  {% if bp %}· {{ bv.fy }} recognised <b>{{ bp.fy|money }}</b>, still to recognise <b>{{ bp.remaining|money }}</b>{% endif %}
   · <button type="button" class="lk" data-open="d-margin">Gross margin <b class="{{ 'neg' if v.gm < 0 }}">{{ v.gm|money }}</b> {{ v.gm_pct|pct }} → net <b>{{ v.nm|money }}</b> after BHF labour</button>
 </p>
 {{ fy_recon(p, v.fy_docs.get(v.fy_now, {'invoiced': 0, 'billed': 0}), v.fy_now, 'd-in', 'd-out', 'd-fy') }}

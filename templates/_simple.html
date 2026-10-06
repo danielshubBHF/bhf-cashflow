@@ -80,3 +80,49 @@
   </table>
 </section>
 {%- endmacro %}
+
+{% macro budget_card(bv) -%}
+{% if bv %}
+<section class="budget" aria-label="{{ bv.fy }} Systems sales vs budget">
+  <div class="ct-head"><h3>{{ bv.fy }} Systems sales vs budget</h3>
+    <span>Revenue recognised in the P&amp;L (accounts 4071–4079) against the NetSuite {{ bv.fy }} budget · AUD ex GST · from NetSuite {{ bv.at }}</span></div>
+  {% set last = (bv.rows|selectattr('closed')|list|last) %}
+  <div class="bud-line">
+    <div><small>Full-year budget</small><b>{{ bv.budget_year|money }}</b></div>
+    <div><small>Budget to end {{ last.month[:3] if last else '—' }}</small><b>{{ bv.budget_closed|money }}</b></div>
+    <div><small>Actual to end {{ last.month[:3] if last else '—' }}</small><b>{{ bv.actual_closed|money }}</b>
+      <span class="{{ 'neg' if bv.vs_closed < 0 else 'pos' }}">{{ bv.vs_closed|signed }} · {{ '%.0f'|format(bv.pct_closed * 100) }}% of budget</span></div>
+    <div><small>{{ bv.month[:3] }} so far (part month)</small><b>{{ bv.actual_current|money }}</b><span>of {{ bv.budget_current|money }} budget</span></div>
+    <div><small>Secured, still to recognise</small><b>{{ bv.secured|money }}</b><span>live projects' contracts not yet recognised</span></div>
+    <div class="gap"><small>Still to win this year</small><b class="{{ 'neg' if bv.gap > 0 }}">{{ bv.gap|money }}</b><span>budget − actual to date − secured</span></div>
+  </div>
+  <div class="bud-tables">
+    <table class="ct">
+      <colgroup><col><col style="width:7rem"><col style="width:7rem"><col style="width:7rem"></colgroup>
+      <thead><tr><th>Month</th><th class="n">Budget</th><th class="n">Actual</th><th class="n">vs budget</th></tr></thead>
+      <tbody>
+      {% for r in bv.rows %}<tr class="{{ 'muted-row' if not r.closed and not r.current }}"><td>{{ r.month }}{% if r.current %} <small>part month</small>{% endif %}</td>
+        <td class="n">{{ r.budget|money }}</td><td class="n">{{ r.actual|money if r.closed or r.current else '—' }}</td>
+        <td class="n {{ 'neg' if r.closed and r.actual < r.budget else 'pos' if r.closed else '' }}">{{ (r.actual - r.budget)|signed if r.closed else '' }}</td></tr>{% endfor %}
+      </tbody>
+      <tfoot><tr><td>{{ bv.fy }}</td><td class="n">{{ bv.budget_year|money }}</td><td class="n">{{ bv.actual_ytd|money }}</td><td class="n">{{ bv.vs_closed|signed }}<small>closed months</small></td></tr></tfoot>
+    </table>
+    <table class="ct">
+      <colgroup><col><col style="width:7rem"><col style="width:7rem"><col style="width:7rem"><col style="width:7.5rem"></colgroup>
+      <thead><tr><th>Live project</th><th class="n">Contract</th><th class="n">Recognised before {{ bv.fy }}</th><th class="n">{{ bv.fy }} recognised</th><th class="n">Still to recognise</th></tr></thead>
+      <tbody>
+      {% for p in bv.projects %}<tr><td><a href="/p/{{ p.code }}"><b>{{ p.code }}</b> {{ p.name }}</a></td><td class="n">{{ p.contract|money }}</td>
+        <td class="n muted">{{ p.before|money }}</td><td class="n"><b>{{ p.fy|money }}</b></td><td class="n">{{ p.remaining|money if p.remaining else '—' }}</td></tr>{% endfor %}
+      {% set live_fy = bv.projects|map(attribute='fy')|sum %}
+      {% if (bv.projects_fy - live_fy)|abs >= 0.5 %}<tr class="done"><td>Completed projects</td><td></td><td></td><td class="n">{{ (bv.projects_fy - live_fy)|money }}</td><td></td></tr>{% endif %}
+      {% if bv.other_fy|abs >= 0.5 %}<tr class="done"><td>Other Systems sales <small>not on a project in this app</small></td><td></td><td></td><td class="n">{{ bv.other_fy|money }}</td><td></td></tr>{% endif %}
+      </tbody>
+      <tfoot><tr><td>Total</td><td></td><td></td><td class="n">{{ bv.actual_ytd|money }}</td><td class="n">{{ bv.secured|money }}</td></tr></tfoot>
+    </table>
+  </div>
+  <p class="bud-note">Secured assumes each live project's remaining contract is recognised by 30 June; some may fall into the next year. Recognised = journals releasing each project's Unearned Income into Systems sales, plus invoices posted straight to Systems sales.</p>
+</section>
+{% else %}
+<section class="budget"><p class="muted">{{ 'FY budget unavailable: NetSuite could not be reached. Refresh to try again.' }}</p></section>
+{% endif %}
+{%- endmacro %}
