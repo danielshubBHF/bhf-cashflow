@@ -45,7 +45,9 @@ def fetch_pdf(ns, d: dict):
     try:
         if d["type"] == "InvAdjst":
             return ns.stock_issue_pdf(int(d["id"]))
-        got = ns.pdf(int(d["id"]), attached=d["type"] == "VendBill")   # bills: the supplier's own invoice
+        # Bills use NetSuite's printout: the PDFs attached to bills in NetSuite turned out to be quotes, order
+        # acknowledgements and proformas far more often than the supplier's tax invoice (checked 06/10/26).
+        got = ns.pdf(int(d["id"]))
         return got[:2] if got else None
     except Exception as e:                      # timeout, RESTlet error: retried next sync
         log.warning("PDF for %s %s not fetched: %s", d.get("type"), d.get("tranid"), e)
@@ -242,7 +244,7 @@ def refetch_bills(dry: bool = False):
     P, T = Table(config.SHEETS["projects"]), Table(config.SHEETS["transactions"])
     live = {p["Project"] for p in P.load() if p.get("Status") not in ("Closed", "Complete")}
     rows = [t for t in T.load() if t.get("Type") == "Bill" and t.get("PDF") and t.get("NetSuite ID")
-            and t.get("Project") in live]
+            and t.get("Project") in live and str(t["PDF"]).startswith("Bill_")]      # still NetSuite's printout
     swapped, none = [], 0
     for t in rows:
         got = None
@@ -254,8 +256,12 @@ def refetch_bills(dry: bool = False):
             none += 1
             continue
         if not dry:
-            T.attach(t["_id"], got[0], got[1])
-            T.update([(t["_id"], {"PDF": got[0], "Filed": False})])
+            try:
+                T.attach(t["_id"], got[0], got[1])
+                T.update([(t["_id"], {"PDF": got[0], "Filed": False})])
+            except Exception as e:
+                log.warning("bill %s: attaching %s failed: %s", t.get("Doc #"), got[0], e)
+                continue
         swapped.append(f"{t['Project']} {t.get('Doc #')} -> {got[0]}")
     for s in swapped:
         log.info(s)
