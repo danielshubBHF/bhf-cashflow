@@ -1,16 +1,26 @@
 {% extends "base.html" %}{% from "_macros.html" import pipe, legend, cash_card, drawer, explain, basis, stage_cells, stage_heads, chart_help, position_strip, stage_strip %}
 {% from "_simple.html" import fy_recon, budget_card %}
 {% block main %}
-{% set t = pf.totals %}{% set p = t.position %}
+{% set t = pf.totals %}{% set p = t.position %}{% set fyb = bv.fy if bv else pf.fy_now %}
 <div class="pagebar">
   <h2>All live projects</h2>
   <span class="by">{{ pf.views|length }} live project{{ '' if pf.views|length == 1 else 's' }}{% if pf.complete %} · {{ pf.complete|length }} complete (financial years only){% endif %}</span>
   {% if t.unfiled %}<span class="pill warn">{{ t.unfiled }} PDF{{ '' if t.unfiled == 1 else 's' }} not yet filed</span>{% endif %}
   {% if t.flags %}<span class="pill warn">{{ t.flags }} item{{ '' if t.flags == 1 else 's' }} need attention</span>{% endif %}
+  <span class="pb-brk"></span>
+  <nav class="sectabs" role="tablist" aria-label="Sections" data-default="budget">
+    <button type="button" role="tab" data-tab="budget" aria-selected="true" class="on">{{ fyb }} vs budget</button>
+    <button type="button" role="tab" data-tab="cash" aria-selected="false">Cash</button>
+    <button type="button" role="tab" data-tab="months" aria-selected="false">Cash by month</button>
+  </nav>
 </div>
 
+<div class="panes">
+<section class="pane on" data-tab="budget" role="tabpanel" aria-label="{{ fyb }} vs budget">
 {{ budget_card(bv) }}
+</section>
 
+<section class="pane" data-tab="cash" role="tabpanel" aria-label="Cash">
 <h3 class="sect">Cash on live projects</h3>
 <p class="headline">
   <button type="button" class="lk" data-open="d-o-contract">Contracts <b>{{ t.contract|money }}</b></button> <small>({{ t.contract_orig|money }} + {{ t.variations|money }} variations)</small>
@@ -50,7 +60,11 @@
     </table>
     </div>
   </section>
+</div>
+</section>
 
+<section class="pane" data-tab="months" role="tabpanel" aria-label="Cash by month">
+<div class="odash omonths">
   {{ cash_card(pf.curve, pf.fy, pf.fy_now, 'c-ocash', 'Cash by month', fy_note='FY views include completed projects; “All” is live projects only') }}
 
   <section class="card c-ofy" aria-label="Financial years">
@@ -70,10 +84,12 @@
         <tr class="tot"><td>Gross (invoiced − billed)</td>{% for f in pf.fy_all %}<td class="{{ 'neg' if f.gross < 0 }}">{{ f.gross|money }}</td>{% endfor %}</tr>
       </tbody>
     </table>
-    <p class="hint" style="margin:6px 0 0">Actuals only. {% for f in pf.fy_all if f.from %}{{ f.fy }} is a part year: the loaded history starts {{ f.from }}. {% endfor %}{% for f in pf.fy_all if f.current %}{{ f.fy }} is to date ({{ f.to }}). {% endfor %}</p>
+    <p class="hint fyhint">Actuals only. {% for f in pf.fy_all if f.from %}{{ f.fy }} is a part year: the loaded history starts {{ f.from }}. {% endfor %}{% for f in pf.fy_all if f.current %}{{ f.fy }} is to date ({{ f.to }}). {% endfor %}</p>
     {% else %}<p class="empty">No transactions yet.</p>{% endif %}
     </div>
   </section>
+</div>
+</section>
 </div>
 <div class="foot"><b>Basis:</b> AUD ex GST. Live projects drive the statement, figures, table and “All” chart; completed projects count in financial years only; closed projects are left out. Actuals from NetSuite paid dates; still to come from unpaid bills and invoices, unbilled milestones, open PO balances and forecasts.</div>
 {% endblock %}
@@ -133,4 +149,4 @@
 
 {% call drawer('d-chart', 'How to read the cash chart', 'All live projects', size='mid') %}{{ chart_help('Here the FY buttons include completed projects, so a past year shows everything that moved in it; “All” shows live projects only.') }}{% endcall %}
 {% endblock %}
-{% block scripts %}<script>window.CURVE = {{ pf.curve|tojson }}; window.CURVE_FY = {{ pf.curve_fy|tojson }};</script><script src="/static/chart.js"></script>{% endblock %}
+{% block scripts %}<script>window.CURVE = {{ pf.curve|tojson }}; window.CURVE_FY = {{ pf.curve_fy|tojson }};</script><script src="/static/chart.js?v=2610d"></script>{% endblock %}

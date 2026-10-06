@@ -62,7 +62,7 @@
       const step = rows.length > 1 ? x.getPixelForValue(1) - x.getPixelForValue(0) : a.right - a.left;
       const lastPast = rows.map(r => r.is_past).lastIndexOf(true), cur = rows.findIndex(r => r.is_current);
       ctx.save();
-      ctx.font = `700 8.5px ${K.head}`; ctx.textBaseline = "top";
+      ctx.font = `700 11.5px ${K.head}`; ctx.textBaseline = "top";
       if (lastPast >= 0) {
         const edge = Math.min(a.right, x.getPixelForValue(lastPast) + step / 2);
         ctx.fillStyle = "rgba(14,42,71,.045)"; ctx.fillRect(a.left, a.top, edge - a.left, a.bottom - a.top);
@@ -105,22 +105,22 @@
     options: {
       maintainAspectRatio: false, animation: { duration: 250 },
       interaction: { mode: "index", intersect: false },
-      layout: { padding: { top: 14 } },
+      layout: { padding: { top: 18 } },
       plugins: {
         legend: { display: false },
         tooltip: {
           filter: it => it.datasetIndex === 0, displayColors: false, backgroundColor: "rgba(14,42,71,.94)",
-          titleFont: { family: K.head, weight: "600", size: 12 }, bodyFont: { family: K.head, size: 11.5 }, padding: 10,
+          titleFont: { family: K.head, weight: "600", size: 13.5 }, bodyFont: { family: K.head, size: 13 }, padding: 10,
           callbacks: { title: it => `${rows[it[0].dataIndex].label} · ${when(rows[it[0].dataIndex])}`,
                        label: it => lines(rows[it.dataIndex]) },
         },
       },
       scales: {
         x: { stacked: true, grid: { display: false },
-             ticks: { font: c => ({ family: K.head, size: 10, weight: rows[c.index] && rows[c.index].is_current ? "700" : "500" }),
-                      color: c => rows[c.index] && rows[c.index].is_current ? K.navy : "#9aa7b3", maxRotation: 0, autoSkip: true } },
+             ticks: { font: c => ({ family: K.head, size: 12, weight: rows[c.index] && rows[c.index].is_current ? "700" : "500" }),
+                      color: c => rows[c.index] && rows[c.index].is_current ? K.navy : "#6b7884", maxRotation: 0, autoSkip: true } },
         y: { stacked: true, min: R.min, max: R.max, grid: { color: K.grid }, border: { display: false },
-             ticks: { callback: short, color: "#9aa7b3", font: { family: K.head, size: 9.5 }, maxTicksLimit: 7 } },
+             ticks: { callback: short, color: "#6b7884", font: { family: K.head, size: 12 }, maxTicksLimit: 7 } },
         y2: { display: false, min: R.min, max: R.max },
       },
     },

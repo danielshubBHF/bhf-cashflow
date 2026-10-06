@@ -9,9 +9,16 @@
   <div class="acts">
     <button type="button" class="btn" data-open="d-forecast">Forecast &amp; payments</button>
   </div>
+  <span class="pb-brk"></span>
+  <nav class="sectabs" role="tablist" aria-label="Sections" data-default="cashflow">
+    <button type="button" role="tab" data-tab="cashflow" aria-selected="true" class="on">Cashflow</button>
+    {% if pl %}<button type="button" role="tab" data-tab="pl" aria-selected="false">P&amp;L recognition</button>{% endif %}
+    <button type="button" role="tab" data-tab="chart" aria-selected="false">Chart &amp; attention{% if v.flags %} <span class="cnt">{{ v.flags|length }}</span>{% endif %}</button>
+  </nav>
 </div>
 {% if err %}<p class="error" role="alert">Not saved: {{ err }}</p>{% endif %}
-
+<div class="panes">
+<section class="pane on" data-tab="cashflow" role="tabpanel" aria-label="Cashflow">
 {% set c = v.cost %}
 <p class="headline">
   <button type="button" class="lk" data-open="d-contract">Contract <b>{{ v.contract|money }}</b></button>{% if v.variations %} <small>({{ v.contract_orig|money }} + {{ v.variations|money }} variations)</small>{% endif %}
@@ -25,9 +32,13 @@
   {{ incoming_table(v.ledger_lines['in'], p, v.fy_now) }}
   {{ outgoing_table(v.ledger_lines.out, p, v.fy_now) }}
 </div>
-
-{{ pl_card(v.code, pl) if pl }}
-
+</section>
+{% if pl %}
+<section class="pane" data-tab="pl" role="tabpanel" aria-label="P&amp;L recognition">
+{{ pl_card(v.code, pl) }}
+</section>
+{% endif %}
+<section class="pane" data-tab="chart" data-also="costs" role="tabpanel" aria-label="Chart and attention">
 <div class="pdash">
 
   {{ cash_card(v.curve, v.fy, v.fy_now, 'c-cash') }}
@@ -52,6 +63,8 @@
     {% else %}<p class="empty">Nothing needs attention.</p>{% endif %}
     </div>
   </section>
+</div>
+</section>
 </div>
 <div class="foot"><b>Basis:</b> AUD ex GST. Received / paid = NetSuite paid dates. Still to come = unpaid bills and invoices (by due date), unbilled milestones and open PO balances (by milestone or line date), and forecast not yet ordered (by the line's expected date). Anything still to come that was due before today is marked overdue. Final position = everything in less everything out.</div>
 {% endblock %}
@@ -143,4 +156,4 @@
 
 {% call drawer('d-chart', 'How to read the cash chart', v.code, size='mid') %}{{ chart_help() }}{% endcall %}
 {% endblock %}
-{% block scripts %}<script>window.CURVE = {{ v.curve|tojson }};</script><script src="/static/chart.js"></script><script src="/static/editor.js"></script>{% endblock %}
+{% block scripts %}<script>window.CURVE = {{ v.curve|tojson }};</script><script src="/static/chart.js?v=2610d"></script><script src="/static/editor.js?v=2610d"></script>{% endblock %}

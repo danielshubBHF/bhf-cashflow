@@ -1,3 +1,45 @@
+// Section tabs: each page is split into sections (.pane[data-tab]) that each fit one screen.
+//  - The chosen tab is kept in the URL hash (#pl, #chart …), so links and the reload after a save come back to it.
+//  - A hash naming something inside a section (#attention, #pl) opens that section; data-also lists extra names.
+//  - Without JS every section shows, one under the other.
+(() => {
+  const bar = document.querySelector(".sectabs");
+  if (!bar) return;
+  const panes = [...document.querySelectorAll(".pane[data-tab]")];
+  const btns = [...bar.querySelectorAll("[data-tab]")];
+  function paneFor(h) {
+    if (!h) return null;
+    const p = panes.find(x => x.dataset.tab === h || (x.dataset.also || "").split(" ").includes(h));
+    if (p) return p;
+    const el = document.getElementById(h);
+    return el ? el.closest(".pane[data-tab]") : null;
+  }
+  function show(p, remember) {
+    if (!p) return;
+    panes.forEach(x => x.classList.toggle("on", x === p));
+    btns.forEach(b => {
+      const on = b.dataset.tab === p.dataset.tab;
+      b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1;
+    });
+    if (remember) history.replaceState(history.state, "", "#" + p.dataset.tab);
+    window.dispatchEvent(new Event("resize"));               // the cash chart sizes itself when it becomes visible
+  }
+  const fromHash = () => paneFor(decodeURIComponent(location.hash.slice(1)));
+  show(fromHash() || paneFor(bar.dataset.default) || panes[0]);
+  bar.addEventListener("click", e => {
+    const b = e.target.closest("[data-tab]");
+    if (b) show(paneFor(b.dataset.tab), true);
+  });
+  bar.addEventListener("keydown", e => {
+    const i = btns.indexOf(document.activeElement);
+    if (i < 0 || (e.key !== "ArrowRight" && e.key !== "ArrowLeft")) return;
+    const b = btns[(i + (e.key === "ArrowRight" ? 1 : btns.length - 1)) % btns.length];
+    b.focus(); show(paneFor(b.dataset.tab), true);
+  });
+  window.addEventListener("hashchange", () => show(fromHash()));
+  window.bhfTabs = { show: t => show(paneFor(t), true) };
+})();
+
 // Drawers (.ovl), the line detail side panels (.ovl.side), expandable lines in Forecast & payments (.fl)
 // and the In / Out list filters.
 //  - [data-open="<id>"] opens a drawer or panel; with data-line="<key>" it also expands that line.

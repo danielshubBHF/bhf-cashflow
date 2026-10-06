@@ -30,8 +30,8 @@
 {% macro incoming_table(groups, p, fy) -%}
 <section class="ct-card" aria-label="Incoming">
   <div class="ct-head"><h3>Incoming</h3><span>{{ (p.in_done + p.in_tocome)|money }} · {{ p.in_done|money }} received · {{ p.in_tocome|money }} to come</span></div>
-  <table class="ct">
-    <colgroup><col><col style="width:7.5rem"><col style="width:6rem"><col style="width:6.5rem"></colgroup>
+  <div class="ct-scroll"><table class="ct">
+    <colgroup><col><col style="width:8rem"><col style="width:7rem"><col style="width:9rem"></colgroup>
     <thead><tr><th>Milestone</th><th class="n">Amount</th><th>Date</th><th>Status</th></tr></thead>
     <tbody>
     {% for g in groups %}{% set l = g.line %}
@@ -44,15 +44,15 @@
     {% else %}<tr><td colspan="4" class="muted">No incoming lines yet.</td></tr>{% endfor %}
     </tbody>
     <tfoot><tr><td>Total in</td><td class="n">{{ (p.in_done + p.in_tocome)|money }}</td><td colspan="2">{{ p.in_tocome|money }} to come</td></tr></tfoot>
-  </table>
+  </table></div>
 </section>
 {%- endmacro %}
 
 {% macro outgoing_table(groups, p, fy) -%}
 <section class="ct-card" aria-label="Outgoing">
   <div class="ct-head"><h3>Outgoing</h3><span>{{ (p.out_done + p.out_tocome)|money }} · {{ p.out_done|money }} paid · {{ p.out_tocome|money }} to pay · click ▸ for payment stages</span></div>
-  <table class="ct">
-    <colgroup><col><col style="width:6.5rem"><col style="width:6.5rem"><col style="width:6.5rem"><col style="width:6rem"><col style="width:6.5rem"><col style="width:5.5rem"></colgroup>
+  <div class="ct-scroll"><table class="ct">
+    <colgroup><col><col style="width:7.5rem"><col style="width:8rem"><col style="width:7.5rem"><col style="width:8rem"><col style="width:7.5rem"><col style="width:7rem"></colgroup>
     <thead><tr><th>Item</th><th class="n">Forecast</th><th class="n">Actual</th><th class="n">Paid</th><th class="n">of which {{ fy }}</th><th class="n">To pay</th><th>Next due</th></tr></thead>
     <tbody>
     {% for g in groups %}{% set l = g.line %}
@@ -77,7 +77,7 @@
     {% else %}<tr><td colspan="7" class="muted">No cost lines yet.</td></tr>{% endfor %}
     </tbody>
     <tfoot><tr><td>Total out</td><td class="n">{{ (groups|map(attribute='line')|map(attribute='budget')|sum)|money }}</td><td class="n">{{ (p.out_done + p.out_tocome)|money }}</td><td class="n">{{ p.out_done|money }}</td><td class="n">{{ p.out_fy|money }}</td><td class="n">{{ p.out_tocome|money }}</td><td></td></tr></tfoot>
-  </table>
+  </table></div>
 </section>
 {%- endmacro %}
 
@@ -102,7 +102,7 @@
     {% endif %}
   </div>
   <div class="bud-tables">
-    <table class="ct">
+    <div class="ct-scroll"><table class="ct bud-months">
       <colgroup><col><col style="width:7rem"><col style="width:7rem"><col style="width:7rem"></colgroup>
       <thead><tr><th>Month</th><th class="n">Budget</th><th class="n">Actual</th><th class="n">vs budget</th></tr></thead>
       <tbody>
@@ -111,8 +111,8 @@
         <td class="n {{ 'neg' if r.closed and r.actual < r.budget else 'pos' if r.closed else '' }}">{{ (r.actual - r.budget)|signed if r.closed else '' }}</td></tr>{% endfor %}
       </tbody>
       <tfoot><tr><td>{{ bv.fy }}</td><td class="n">{{ bv.budget_year|money }}</td><td class="n">{{ bv.actual_ytd|money }}</td><td class="n">{{ bv.vs_closed|signed }}<small>closed months</small></td></tr></tfoot>
-    </table>
-    <table class="ct">
+    </table></div>
+    <div class="ct-scroll"><table class="ct bud-proj">
       <thead><tr><th>Live project</th><th class="n">Contract</th><th class="n">Recognised before {{ bv.fy }}</th><th class="n">{{ bv.fy }} recognised</th>{% if bv.scheduled_rest is not none %}<th class="n">Rest of {{ bv.fy }} (formula)</th>{% endif %}<th class="n">Still to recognise</th></tr></thead>
       <tbody>
       {% for p in bv.projects %}<tr><td><a href="/p/{{ p.code }}"><b>{{ p.code }}</b> {{ p.name }}</a></td><td class="n">{{ p.contract|money }}</td>
@@ -123,7 +123,7 @@
       {% if bv.other_fy|abs >= 0.5 %}<tr class="done"><td>Other Systems sales <small>not on a project in this app</small></td><td></td><td></td><td class="n">{{ bv.other_fy|money }}</td>{% if x %}<td></td>{% endif %}<td></td></tr>{% endif %}
       </tbody>
       <tfoot><tr><td>Total</td><td></td><td></td><td class="n">{{ bv.actual_ytd|money }}</td>{% if x %}<td class="n">{{ bv.scheduled_rest|money }}</td>{% endif %}<td class="n">{{ bv.secured|money }}</td></tr></tfoot>
-    </table>
+    </table></div>
   </div>
   <p class="bud-note">Secured assumes each live project's remaining contract is recognised by 30 June; some may fall into the next year. Recognised = journals releasing each project's Unearned Income into Systems sales, plus invoices posted straight to Systems sales.</p>
 </section>
@@ -154,14 +154,14 @@
   {% if pl.variations %}<p class="bud-note">Variations over {{ pl.threshold|money }} catch up from the month they land: {{ pl.variations|join(', ') }}.</p>{% endif %}
   {% if pl.small %}<p class="bud-note">Recognised when invoiced (at or under {{ pl.threshold|money }}): {{ pl.small|join(', ') }}.</p>{% endif %}
   {% endif %}
-  <table class="ct">
+  <table class="ct pl-fys">
     <thead><tr><th>Financial year</th><th class="n">Revenue: formula</th><th class="n">Locked baseline</th><th class="n">Moves vs baseline</th><th class="n">NetSuite actual</th>
       <th class="n">Cost: formula</th><th class="n">NetSuite actual</th></tr></thead>
     <tbody>{% for f in pl.fys %}<tr><td><b>{{ f.fy }}</b></td><td class="n"><b>{{ f.rev|money }}</b></td><td class="n muted">{{ f.rev_base|money }}</td>
       <td class="n {{ 'neg' if f.move_rev < -0.5 else 'pos' if f.move_rev > 0.5 }}">{{ f.move_rev|signed if f.move_rev|abs >= 0.5 else '—' }}</td>
       <td class="n">{{ f.rev_act|money if pl.has_actual else '—' }}</td><td class="n">{{ f.cost|money }}</td><td class="n">{{ f.cost_act|money if pl.has_actual else '—' }}</td></tr>{% endfor %}</tbody>
   </table>
-  <details class="pl-months"><summary>Month by month: formula vs what NetSuite has journalled</summary>
+  <details class="pl-months" open><summary>Month by month: formula vs what NetSuite has journalled</summary>
     <table class="ct">
       <thead><tr><th>Month</th><th>Stage</th><th class="n">Revenue: formula</th><th class="n">NetSuite actual</th><th class="n">Difference</th><th class="n">Cost: formula</th><th class="n">NetSuite actual</th><th class="n">Difference</th></tr></thead>
       <tbody>

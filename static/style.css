@@ -596,3 +596,217 @@ body.login p{margin:0;font-size:12px}
 .pl-form input{font:inherit;padding:3px 6px;border:1px solid var(--edge);border-radius:6px}
 .locked{color:var(--good);font-weight:600} .unlocked{color:var(--amber-d);font-weight:600}
 .pl-months{margin-top:8px} .pl-months summary{cursor:pointer;color:var(--cyan-d);font-size:12.5px;margin-bottom:6px}
+
+/* ==== Fit and readability (2026-10): a compact top band, section tabs that each fit one screen,
+   and nothing smaller than 11.5px. Long tables scroll inside their card; the page itself does not. */
+body{font-size:14px;line-height:1.45}
+small{font-size:11.5px}
+.board{gap:12px;padding:10px 20px 12px}
+
+/* top band: logo, title, data stamp, links; then the project switcher (code + full name on one line) */
+header.top{gap:14px;min-height:40px}
+.brandlogo{height:32px}
+.ttl h1{font-size:18px}
+.ttl .sub{font-size:12px;margin-top:0}
+.asat{font-size:11.5px;padding:4px 10px;letter-spacing:.3px}
+.meta{font-size:13px;gap:16px}
+header.top+.ptabs{margin-top:-6px}
+.ptabs{gap:3px;padding:3px;border-radius:9px}
+.ptabs a{flex-direction:row;align-items:baseline;gap:8px;padding:6px 14px;min-width:0}
+.ptabs a b{font-size:14px}
+.ptabs a span{font-size:13px}
+
+/* page title, then the section tabs */
+.pagebar{gap:12px;min-height:34px}
+.pagebar h2{font-size:20px;letter-spacing:-.4px}
+.pagebar .by{font-size:13px}
+.pill{font-size:11.5px;padding:3px 9px}
+.btn{font-size:13.5px;padding:7px 15px;border-radius:8px}
+.error{font-size:13px;padding:7px 12px}
+.sectabs{display:none}
+.js .sectabs{display:flex;flex-wrap:wrap;gap:4px;align-self:flex-start;flex:none;margin-top:-4px;background:#fff;border:1px solid var(--edge);border-radius:10px;padding:4px;box-shadow:var(--sh)}
+.sectabs button{font-family:var(--head);font-weight:600;font-size:14.5px;color:var(--grey);background:none;border:0;border-radius:7px;padding:7px 20px;cursor:pointer;white-space:nowrap;line-height:1.3}
+.sectabs button:hover{background:var(--tile);color:var(--navy)}
+.sectabs button.on{background:var(--navy);color:#fff;box-shadow:inset 0 -3px 0 var(--cyan)}
+.sectabs .cnt{display:inline-block;min-width:20px;margin-left:6px;padding:0 6px;border-radius:999px;background:var(--amber-bg);color:var(--amber-d);font-size:12px;text-align:center}
+.panes,.pane{display:flex;flex-direction:column;gap:14px;min-height:0;min-width:0}
+.panes{gap:24px}
+.js .panes{gap:0}
+.js .pane:not(.on){display:none}
+.sect{margin:0;font-size:17px}
+
+/* cards and headings */
+.card{padding:12px 16px}
+.card>.cap{font-size:15px;margin-bottom:8px;gap:8px}
+.card>.cap .tag,.ctag{font-size:11.5px;padding:2px 7px}
+.card>.cap .more{font-size:12.5px;gap:10px;color:var(--muted)}
+.card>.cap .lnk{font-size:13px}
+.seg a,.seg button{font-size:13px;padding:6px 12px}
+.seg.sm button{font-size:12px;padding:4px 10px}
+.empty{font-size:13.5px}
+.hint{font-size:12.5px}
+.fyhint{margin:10px 0 0}
+.foot{font-size:12px;line-height:1.5}
+
+/* headline and the cash reconciliation */
+.headline{font-size:14.5px;line-height:1.6}
+.headline small{font-size:13px}
+.recon-strip{padding:12px 18px 10px}
+.rs th{font-size:13px;padding:4px 14px 8px}
+.rs th:first-child,.rs td:first-child{width:16%}
+.rs td{font-size:15.5px;padding:7px 14px}
+.rs td:first-child{font-size:14.5px}
+.rs td small{font-size:11.5px}
+.rs tr.net td{font-size:17px}
+.rs-docs{font-size:13px;padding:8px 14px 0}
+.rs td:first-child small{display:inline;margin-left:6px}
+.rs td{padding:6px 14px}
+.ctables{grid-template-columns:minmax(0,4fr) minmax(0,7fr)}
+@media (max-width:1300px){ .ctables{grid-template-columns:1fr} }
+
+/* incoming / outgoing / budget tables */
+.ct-card{padding:12px 16px 10px}
+.ct-head{gap:12px;margin-bottom:8px;flex-wrap:wrap}
+.ct-head h3{font-size:17px}
+.ct-head span{font-size:13px}
+.ct{font-size:14px}
+.ct th{font-size:12.5px;padding:7px 10px;color:var(--grey);background:#fff}
+.ct td{padding:6px 10px}
+.ct td small{font-size:12px}
+.ct td:first-child{overflow:visible;overflow-wrap:break-word;min-width:10rem}
+.ct tr.stg td{font-size:13.5px}
+.ct td.ind{padding-left:26px}
+.ct .tg{font-size:13px;width:20px}
+.ct i.fy{font-size:11.5px}
+.ct tfoot td{padding-top:8px;padding-bottom:8px;background:#fff}
+.ct-scroll .ct thead th{position:sticky;top:0;z-index:1;box-shadow:inset 0 -1px 0 var(--edge)}
+.ct-scroll .ct tfoot td{position:sticky;bottom:0;z-index:1;box-shadow:inset 0 2px 0 var(--edge)}
+.ctables{gap:16px}
+.budget{padding:12px 18px}
+.bud-line{margin:8px 0 12px}
+.bud-line>div{padding:10px 14px 8px}
+.bud-line small{font-size:12.5px}
+.bud-line b{font-size:23px}
+.bud-line span{font-size:12.5px}
+.bud-tables{gap:20px}
+.bud-note{font-size:12.5px}
+.pl-set{gap:12px 22px;margin:8px 0 10px}
+.stg-list,.pl-form{font-size:13.5px}
+.pl-form input{padding:5px 8px}
+.pl-fys{margin-bottom:6px}
+.pl-months summary{font-size:14px;font-weight:600}
+.pl-months .ct thead th{position:sticky;top:0;z-index:1;box-shadow:inset 0 -1px 0 var(--edge)}
+
+/* overview projects table, FY table, cash chart, needs attention */
+.tbl{font-size:13.5px}
+.tbl th,.tbl td{padding:6px 10px}
+.tbl thead th{font-size:11.5px;letter-spacing:.2px}
+.tbl td small{font-size:11.5px}
+.tbl.ptbl{font-size:14px} .tbl.ptbl td small{font-size:12px} .tbl.ptbl thead th{font-size:11.5px;padding:8px 10px}
+.ptbl td{padding:10px!important}
+.tbl.fyt{font-size:14px} .fyt td,.fyt th{padding:7px 12px} .fyt tr.sub td{font-size:12px;padding-top:10px} .fyt thead th{font-size:13px}
+.tleg{font-size:12px;gap:6px 14px;margin-top:8px}
+.tleg i{width:12px;height:10px}
+.fyline{font-size:12.5px;margin-top:4px}
+.att li{font-size:14px;padding:9px 2px;gap:8px;grid-template-columns:10px 1fr}
+.att li::before{width:8px;height:8px;margin-top:6px}
+.att .k{font-size:11.5px;margin-right:6px}
+.linkform{font-size:13px;gap:8px;margin-top:6px}
+.linkform select{font-size:13px;padding:4px 6px;max-width:320px}
+.linkform button{font-size:13px;padding:5px 12px}
+.flagcount{font-size:13px;padding:1px 7px}
+
+/* drawers and side panels */
+.sheet-h .t{font-size:17px} .sheet-h .s{font-size:13px}
+.sheet-b{font-size:13.5px}
+.sheet-b .tbl{font-size:13.5px} .sheet-b .tbl th,.sheet-b .tbl td{padding:6px 10px}
+.sheet-b h3{font-size:15px} .sheet-b h3 small{font-size:12px} .sheet-b h4{font-size:14px}
+.note{font-size:13px} .what{font-size:14px} .formula{font-size:13px}
+.bignum .u{font-size:13px}
+.legend{font-size:12px;gap:4px 14px}
+.dleg{font-size:12.5px;gap:4px}
+.chip{font-size:11.5px;padding:2px 8px}
+.tag{font-size:11.5px;padding:2px 7px}
+.mini{font-size:13px} .mini th{font-size:11.5px}
+.recon{font-size:13px}
+table.editor{font-size:13px}
+table.editor th{font-size:11.5px}
+table.editor .act button{font-size:12.5px}
+table.editor caption,.mini caption,.recon caption{font-size:13px}
+table.editor td.gap{font-size:12px}
+.msg{font-size:12px}
+.fl-colh,.fl-colh .c-n,.fl-colh .c-d{font-size:11.5px}
+.fl-g{font-size:12px}
+.fl-h .c-line b{font-size:14px} .fl-h .c-line small{font-size:12px}
+.c-n{font-size:13.5px} .c-d{font-size:13px}
+.fl-tot{font-size:12.5px}
+.fb-tot dt{font-size:11.5px}
+.fe-leg{font-size:12.5px} .fe-leg .legend{font-size:12px}
+.fgrid2 label{font-size:11.5px}
+.fgrid2 input:not([type=checkbox]),.fgrid2 select{font-size:14px}
+.lp-stages small{font-size:11.5px}
+.lg-g{font-size:11.5px} .lg-tot{font-size:12px}
+.lg-r .d{font-size:12.5px} .lg-r .it{font-size:13px} .lg-r .it small{font-size:11.5px}
+.sstrip{font-size:12.5px}
+.posline .pf small,.posline .pf.final em{font-size:11.5px}
+.lgrp{font-size:11.5px}
+
+/* one screen per section on a desktop or laptop: the board fills the window and the long tables scroll inside */
+@media (min-width:1100px) and (min-height:600px){
+  html.js .board{height:100vh}
+  .js .panes,.js .pane.on{flex:1}
+  .js .pane .ctables{flex:1;min-height:280px;align-items:stretch;grid-auto-rows:minmax(0,1fr)}
+  .js .ct-card{display:flex;flex-direction:column;min-height:0}
+  .js .ct-card .ct-scroll{flex:1;min-height:0;overflow:auto}
+  .js .pane .budget{flex:1;min-height:0;display:flex;flex-direction:column}
+  .js .pane .bud-tables{flex:1;min-height:240px;grid-auto-rows:minmax(0,1fr)}
+  .js .bud-tables .ct-scroll{min-height:0;overflow:auto}
+  .js .pane .odash{flex:1;min-height:280px;grid-auto-rows:minmax(0,1fr)}
+  .js .pane .odash>.card{height:auto}
+  .js .pane .pdash{flex:1;min-height:320px;grid-auto-rows:minmax(0,1fr)}
+  .js .pane .pdash>.card{height:auto}
+  .js .pane .plc{flex:1;min-height:0;display:flex;flex-direction:column}
+  .js .plc>*{flex:none}
+  .js .plc>.pl-months{flex:1;min-height:200px;overflow:auto;margin-top:12px}
+}
+/* the projects table sits alone on the Cash section: let it take the full width */
+.odash>.c-proj:only-child{grid-column:1/-1}
+@media (max-height:880px){
+  .board{gap:10px;padding:8px 16px 8px}
+  .card{padding:10px 14px} .brandlogo{height:28px}
+  .rs td{padding:5px 14px} .rs th{padding:3px 14px 6px}
+  .bud-line>div{padding:8px 12px 6px} .bud-line b{font-size:20px}
+  .ct td{padding:6px 10px} .ct th{padding:6px 10px}
+}
+.bud-proj th:first-child{width:34%}
+.ct td a{color:var(--navy);text-decoration:none} .ct td a:hover{color:var(--cyan-d);text-decoration:underline}
+.ct td a b{color:var(--navy)}
+.progress{font-size:12.5px} .lp-pay{font-size:14px} .lp-pay small{font-size:12px} .lp-acts{font-size:13px}
+/* section tabs live in the title bar: on their own row under the title, or beside it on short screens */
+.pb-brk{flex-basis:100%;height:0}
+.pagebar{row-gap:10px}
+.js .pagebar .sectabs{margin-top:0}
+.js .pane.on{overflow:auto}
+@media (max-height:880px){
+  .pb-brk{display:none}
+  .pagebar .acts{order:2}
+  .js .pagebar .sectabs{margin-left:10px}
+  .sectabs button{padding:6px 16px}
+  .headline{line-height:1.45}
+  .rs td{font-size:14.5px;padding:4px 14px} .rs tr.net td{font-size:16px} .rs th{font-size:12.5px}
+  .rs-docs{padding-top:6px}
+  .js .pane .ctables{min-height:220px}
+}
+.ct{table-layout:auto}
+.ct col{width:auto!important}
+.ct td:first-child,.ct th:first-child{width:auto}
+.ct tr.ln td:first-child{position:relative;padding-left:30px}
+.ct tr.ln .tg{position:absolute;left:8px;top:8px}
+.ct td:last-child,.ct td:nth-child(3){white-space:nowrap}
+.ct tr.grp td{white-space:normal}
+.ct th{white-space:normal;overflow:visible;vertical-align:bottom;line-height:1.25}
+.bud-tables{grid-template-columns:minmax(0,7fr) minmax(0,13fr)}
+@media (max-width:1300px){ .bud-tables{grid-template-columns:1fr} }
+@media (max-height:880px){ .js .pane .odash{min-height:200px} .js .pane .bud-tables{min-height:200px} }
+.board{padding-top:8px} header.top{min-height:38px}
+.js .ovl.side .sheet{max-width:min(720px,100vw)}
