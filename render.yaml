@@ -27,6 +27,8 @@ envVarGroups:
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.7"
+      - key: TZ                   # Render runs on UTC: dates, "today" and sync stamps in Melbourne time
+        value: Australia/Melbourne
       - key: SMARTSHEET_TOKEN
         sync: false
       - key: NS_ACCOUNT
