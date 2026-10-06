@@ -41,6 +41,23 @@ def group_row(forecasts: list, code: str):
     return next((f["_id"] for f in forecasts if not f.get("Project") and str(f.get("Item") or "").startswith(code + " ")), None)
 
 
+def parse_split(text: str):
+    """'30/70' or '30% deposit, 40% FAT, 30% on delivery' -> ([(30.0, ''), (70.0, '')], None), or (None, error)."""
+    import re
+    found = re.findall(r"(\d+(?:\.\d+)?)\s*%?\s*([^/,;+\d]*)", str(text or ""))
+    parts = []
+    for pct, label in found:
+        label = re.sub(r"^(on|at|upon|after)\s+", "", label.strip(" -:.&"), flags=re.I).strip()
+        parts.append((float(pct), label[:1].upper() + label[1:60] if label else ""))
+    parts = [p for p in parts if p[0] > 0]
+    if not parts:
+        return None, "Type the split as percentages, e.g. 30/70 or 30% deposit, 70% on delivery."
+    total = sum(p for p, _ in parts)
+    if abs(total - 100) > 0.05:
+        return None, f"That split adds up to {total:g}%, not 100%."
+    return parts, None
+
+
 class Store:
     def __init__(self):
         self.at, self.data, self._tables = 0.0, None, {}
@@ -156,6 +173,56 @@ class Store:
         if not self.demo:
             self.table("schedule").delete([row["_id"]])
         self.load()[3].remove(row)
+        return None
+
+    def apply_terms(self, code: str, po: str, split: str = "", confirm: bool = False) -> str | None:
+        """Set a PO's payment terms from a needs-attention item: either confirm the milestones as they are, or
+        replace them with a split typed by the PM ('30/70', '30% deposit, 70% on delivery'). Billed milestones
+        keep their bill; the PO value is shared out by the new percentages."""
+        _, _, txns, sched = self.load()
+        ms = sorted([s for s in sched if s.get("Project") == code and norm(s.get("PO / Order #")) == norm(po)],
+                    key=lambda s: float(s.get("Seq") or 0))
+        if confirm:
+            if not ms:
+                return f"{po} has no milestones to confirm."
+            if abs(sum(float(m.get("Percent") or 0) for m in ms) - 1) > 0.0005:
+                return f"{po} milestones don't add up to 100%. Type the actual split instead."
+            self._update("schedule", [(m, changes(m, {"Confirmed": True})) for m in ms])
+            return None
+        parts, err = parse_split(split)
+        if err:
+            return err
+        orders = [t for t in txns if t.get("Project") == code and t.get("Type") in model.ORDER_TYPES
+                  and norm(t.get("PO / Order #")) == norm(po)]
+        base = sum(float(t.get("Amount") or 0) for t in orders)
+        if not base and ms:
+            pct = sum(float(m.get("Percent") or 0) for m in ms)
+            base = sum(float(m.get("Amount") or 0) for m in ms) / pct if pct else 0
+        if not base:
+            return f"Can't find the value of {po}."
+        billed = [m for m in ms if m.get("Billed Doc")]
+        if len(billed) > len(parts):
+            return f"{len(billed)} of {po}'s milestones are already billed, so the split needs at least {len(billed)} payments."
+        ms = billed + [m for m in ms if not m.get("Billed Doc")]          # billed ones keep the first payments
+        amounts = [round(base * p / 100, 2) for p, _ in parts]
+        amounts[-1] = round(base - sum(amounts[:-1]), 2)
+        src = orders[0] if orders else (ms[0] if ms else {})
+        for i, ((p, label), amt) in enumerate(zip(parts, amounts)):
+            values = {"Seq": i + 1, "Percent": p / 100, "Amount": amt, "Confirmed": True, "Source": "Manual"}
+            if label:
+                values["Milestone"] = label
+            if i < len(ms):
+                self._update("schedule", [(ms[i], changes(ms[i], values))])
+            else:
+                self._add("schedule", sched, {"Project": code, "PO / Order #": po, "Party": src.get("Party"),
+                                              "Direction": src.get("Direction") or "Out",
+                                              **values, "Milestone": label or f"Payment {i + 1}"})
+        extra = ms[len(parts):]
+        if extra:
+            if not self.demo:
+                self.table("schedule").delete([m["_id"] for m in extra])
+            for m in extra:
+                sched.remove(m)
         return None
 
     # ---- FY budget vs actual (straight from NetSuite; not kept in Smartsheet)

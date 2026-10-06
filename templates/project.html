@@ -49,7 +49,16 @@
     {% if v.flags %}
     <ul class="att">
     {% for kind, text, t in v.flags %}{% set m = v.flag_meta[loop.index0] %}
-      <li class="{{ kind }}"><div><span class="k">{{ {'link': 'Unlinked', 'late': 'Late', 'over': 'Over', 'terms': 'Terms', 'overdue': 'Overdue'}.get(kind, kind) }}</span>{{ text }}
+      <li class="{{ kind }}"><div><span class="k">{{ {'link': 'Unlinked', 'late': 'Late', 'over': 'Over', 'terms': 'Terms', 'overdue': 'Overdue',
+          'wrong': 'Wrong project?', 'miscode': 'Miscoded?', 'stale': 'Stale PO', 'received': 'Not billed', 'standalone': 'No PO on bill',
+          'custpo': 'Customer PO', 'shared': 'Shared account'}.get(kind, kind) }}</span>{{ text }}
+        {% if kind == 'terms' and m.po %}
+        <form method="post" action="/p/{{ v.code }}/terms" class="ackform termsform">
+          <input type="hidden" name="po" value="{{ m.po }}">
+          <input name="split" placeholder="Actual terms, e.g. 30/70 or 30% deposit, 70% delivery" aria-label="Actual payment terms" maxlength="200">
+          <button class="btn">Apply</button>{% if not m.key.endswith('|pct') %}<button class="btn ghost" name="confirm" value="1">Terms are right</button>{% endif %}
+        </form>
+        {% endif %}
         <form method="post" action="/p/{{ v.code }}/flag" class="ackform">
           <input type="hidden" name="key" value="{{ m.key }}"><input type="hidden" name="kind" value="{{ kind }}">
           <input type="hidden" name="text" value="{{ text }}"><input type="hidden" name="amount" value="{{ m.amount if m.amount is not none else '' }}">

@@ -836,3 +836,13 @@ table.editor td.gap{font-size:12px}
 .ackform .btn{font-size:12px;padding:3px 10px}
 .acked{margin-top:10px} .acked summary{cursor:pointer;color:var(--muted);font-size:12.5px}
 .acked li.done{color:var(--muted)} .acked li small{display:block;margin-top:2px}
+
+/* needs attention: keep long items and their forms inside the card; colours for the bookkeeping checks */
+.att li{grid-template-columns:10px minmax(0,1fr)}
+.att li>div{min-width:0;overflow-wrap:anywhere}
+.ackform .btn{flex:none;white-space:nowrap}
+.linkform select{max-width:100%;min-width:0}
+.c-attn .cbody{overflow-y:auto;overflow-x:hidden}
+.termsform input[name=split]{flex:1;min-width:0;font:inherit;font-size:12.5px;padding:3px 7px;border:1px solid var(--edge);border-radius:6px}
+.att li.wrong::before,.att li.miscode::before,.att li.standalone::before{background:var(--bad)}
+.att li.shared::before,.att li.custpo::before{background:var(--cyan)}

@@ -141,7 +141,7 @@
 
 {# How to read the cash chart. #}
 {% macro chart_help(live_note='') -%}
-<p class="what">Bars show each month's cash: money in above zero, money out below (left axis). The line is the running cash balance (right axis).</p>
+<p class="what">Bars show each month's cash: money in above zero, money out below. The line is the running cash balance, on the same $ scale.</p>
 <table class="tbl"><tbody>
 <tr><td><span class="sw" style="background:#128a55"></span> Money in</td><td style="text-align:left;white-space:normal">Customer payments: solid once received (NetSuite paid date), faded while still to come (invoice due date, milestone date or forecast date).</td></tr>
 <tr><td><span class="sw" style="background:#d05541"></span> Money out</td><td style="text-align:left;white-space:normal">Supplier payments: solid once paid, faded while still to come (bill due date, PO milestone date, or the forecast line's expected date).</td></tr>

@@ -235,6 +235,164 @@ def unfiled(txns: list) -> int:
     return sum(1 for t in txns if t.get("PDF") and not t.get("Filed"))
 
 
+EXPENSE_GRACE = 14          # days an expense claim can sit unlinked before it's flagged
+STALE_DAYS = 90             # an open PO with nothing billed this long after it was due: cancel or chase
+RECEIPT_DAYS = 30           # received in NetSuite, no bill for this long: chase the supplier invoice
+RECEIVED = {"Pending Bill", "Pending Billing/Partially Received"}
+BILL_TYPES = {"Bill", "Bill Credit", "Card"}
+_SUFFIX = re.compile(r"\b(pty|ltd|limited|co|company|inc|llc|gmbh|sa|lda|australia|aust)\b\.?", re.I)
+
+
+def days(d, today: str) -> int | None:
+    try:
+        return (dt.date.fromisoformat(today[:10]) - dt.date.fromisoformat(str(d)[:10])).days
+    except (TypeError, ValueError):
+        return None
+
+
+def party_key(name) -> str:
+    """Supplier name without brackets, company suffixes and punctuation, for matching across projects."""
+    n = _SUFFIX.sub("", re.sub(r"\([^)]*\)", "", str(name or "")))
+    return re.sub(r"[^a-z0-9]", "", n.lower())
+
+
+def po_refs(f: dict) -> set:
+    return {norm(x) for x in re.split(r"[,;\s]+", str(f.get("PO / Order #") or "")) if x.strip()}
+
+
+def money(x: float) -> str:
+    return f"${x:,.0f}"
+
+
+def housekeeping(code: str, lines: list, pt: list, forecasts: list, txns: list, today: str) -> list[tuple]:
+    """Bookkeeping checks from the brief (section 3). Returns (kind, text, key) tuples.
+      wrong      a PO / customer PO coded to this project that another project's forecast lists
+      miscode    a line still to place here, while a PO from that supplier of about that size sits unlinked on another job
+      received   PO received in NetSuite, no bill for RECEIPT_DAYS
+      stale      PO still open with nothing billed STALE_DAYS after it was due
+      standalone a bill not raised from the PO, so the PO still shows open in NetSuite
+      custpo     a customer invoice with no customer PO number, or one no contract line lists"""
+    out = []
+    others = [f for f in forecasts if f.get("Project") and f.get("Project") != code]
+    orders = [t for t in pt if t.get("Type") in ORDER_TYPES and t.get("Direction") != "In"]
+    bills_on = defaultdict(list)
+    for t in pt:
+        if t.get("Type") in BILL_TYPES and norm(t.get("PO / Order #")):
+            bills_on[norm(t.get("PO / Order #"))].append(t)
+
+    # wrong project: the PO number is on another project's forecast
+    for t in pt:
+        ref = norm(t.get("PO / Order #"))
+        if not ref or t.get("Type") not in ORDER_TYPES | {"Invoice"}:
+            continue
+        hit = next((f for f in others if f.get("Direction") == t.get("Direction") and ref in po_refs(f)), None)
+        if hit:
+            out.append(("wrong", f"{t.get('Type')} {t.get('Doc #')} {t.get('Party')} is coded to {code} in NetSuite, but "
+                                 f"{hit['Project']}'s line “{hit.get('Item')}” lists {t.get('PO / Order #')}. Wrong project?",
+                        t.get("NetSuite ID") or t.get("Doc #")))
+
+    # possible miscoding: a line still to place here; the same supplier has an unlinked PO of about that size elsewhere
+    items_of = defaultdict(set)
+    for f in forecasts:
+        items_of[f.get("Project")].add(f.get("Item"))
+    away = [t for t in txns if t.get("Project") != code and t.get("Type") == "PO" and t.get("Direction") != "In"
+            and items_of[t.get("Project")] and t.get("Forecast") not in items_of[t.get("Project")]]   # tracked jobs only
+    for l in lines:
+        if l.get("unassigned") or l["direction"] != "Out" or l["closed"] or l["remaining"] < 1 or not l["f"].get("Party"):
+            continue
+        k = party_key(l["f"]["Party"])
+        for t in away:
+            pk = party_key(t.get("Party"))
+            if k and pk and (k in pk or pk in k) and abs(num(t.get("Amount")) - l["remaining"]) <= 0.25 * l["remaining"]:
+                out.append(("miscode", f"“{l['item']}” ({l['f']['Party']}, {money(l['remaining'])}) isn't ordered yet, but "
+                                       f"{t.get('Doc #')} from {t.get('Party')} ({money(num(t.get('Amount')))}) is on "
+                                       f"{t.get('Project')} and not on its forecast. Coded to the wrong job?",
+                            t.get("NetSuite ID") or t.get("Doc #")))
+
+    # standalone bills: raised without the PO, so the PO stays open in NetSuite
+    standalone = set()
+    for l in lines:
+        live = [o for o in l["txns"] if o.get("Type") == "PO" and str(o.get("Status") or "") not in DONE_STATUSES]
+        if l.get("unassigned") or not live:
+            continue
+        for b in l["txns"]:
+            if b.get("Type") == "Bill" and not norm(b.get("PO / Order #")):
+                same = [o for o in live if party_key(o.get("Party")) == party_key(b.get("Party"))] or live
+                standalone |= {norm(o.get("PO / Order #")) for o in same}
+                pos = ", ".join(str(o.get("Doc #")) for o in same)
+                out.append(("standalone", f"Bill {b.get('Doc #')} {b.get('Party')} ({money(num(b.get('Amount')))}) wasn't raised "
+                                          f"from {pos}, so the PO still shows open in NetSuite. Close it, or bill from the PO next time.",
+                            b.get("NetSuite ID") or b.get("Doc #")))
+
+    # open POs: received but not billed, or stale (a PO with a standalone bill is already flagged above)
+    due_of = {}
+    for l in lines:
+        for m in l["milestones"]:
+            o = norm(m.get("PO / Order #"))
+            due_of[o] = max(due_of.get(o, ""), str(m.get("Expected Date") or "")[:10])
+        for o in l["orders"]:
+            due_of[o] = max(due_of.get(o, ""), str(l["date"] or "")[:10])
+    for o in orders:
+        ref = norm(o.get("PO / Order #"))
+        if not ref or ref in standalone or str(o.get("Status") or "") in DONE_STATUSES:
+            continue
+        bills = bills_on.get(ref, [])
+        unbilled = num(o.get("Amount")) - sum(num(b.get("Amount")) for b in bills)
+        if unbilled <= max(50.0, 0.01 * num(o.get("Amount"))):
+            continue
+        last_bill = max((str(b.get("Date") or "")[:10] for b in bills), default="")
+        what = f"{o.get('Doc #')} {o.get('Party')}"
+        if str(o.get("Status") or "") in RECEIVED:
+            since = max(last_bill, str(o.get("Date") or "")[:10])
+            if (days(since, today) or 0) > RECEIPT_DAYS:
+                out.append(("received", f"{what}: received in NetSuite but {money(unbilled)} not billed. Chase the supplier invoice?", ref))
+            continue
+        since = max(last_bill, due_of.get(ref, ""), str(o.get("Date") or "")[:10])
+        if (days(since, today) or 0) > STALE_DAYS:
+            done = "nothing billed" if not bills else f"{money(unbilled)} still unbilled"
+            out.append(("stale", f"{what}: open with {done} since {since}. Cancel in NetSuite or chase?", ref))
+
+    # customer invoices: missing or unknown customer PO number
+    mine = set()
+    for l in lines:
+        if l["direction"] == "In" and not l.get("unassigned"):
+            mine |= po_refs(l["f"])
+    mine |= {norm(t.get("PO / Order #")) for t in pt if t.get("Type") == "Sales Order"}
+    for t in pt:
+        if t.get("Type") != "Invoice":
+            continue
+        ref = norm(t.get("PO / Order #"))
+        if not ref:
+            out.append(("custpo", f"Invoice {t.get('Doc #')} ({money(num(t.get('Amount')))}) has no customer PO number.", t.get("Doc #")))
+        elif ref not in mine:
+            out.append(("custpo", f"Invoice {t.get('Doc #')} quotes customer PO {t.get('PO / Order #')}, which no contract line lists. "
+                                  f"Add it to the line, or check it's this customer's PO.", t.get("Doc #")))
+    return out
+
+
+def shared_accounts(projects: list, views: list):
+    """Live projects that share an Unearned Income or WIP account: the P&L can't split them by account."""
+    by_code = {v["code"]: v for v in views}
+    for col, label in (("Unearned Acct ID", "Unearned Income"), ("WIP Acct ID", "WIP")):
+        groups = defaultdict(list)
+        for p in projects:
+            a = str(p.get(col) or "").strip()
+            if a and p.get("Project") in by_code:
+                try:
+                    a = str(int(float(a)))
+                except ValueError:
+                    pass
+                groups[a].append(p["Project"])
+        for acct, codes in groups.items():
+            if len(codes) < 2:
+                continue
+            for c in codes:
+                v, rest = by_code[c], ", ".join(x for x in codes if x != c)
+                text = f"The {label} account (ID {acct}) is shared with {rest}, so the P&L can't split them by account."
+                v["flags"].append(("shared", text, None))
+                v["flag_meta"].append({"key": f"shared:{label}:{acct}", "kind": "shared", "text": text, "amount": None, "po": None})
+
+
 def project_view(p: dict, forecasts: list, txns: list, schedule: list, today: str | None = None) -> dict:
     today = today or dt.date.today().isoformat()
     code = p["Project"]
@@ -342,15 +500,19 @@ def project_view(p: dict, forecasts: list, txns: list, schedule: list, today: st
     # while nothing material changes) and, for overruns, the amount it was raised at.
     flags, flag_meta = [], []
 
-    def flag(kind, text, t, key, amount=None):
+    def flag(kind, text, t, key, amount=None, po=None):
         flags.append((kind, text, t))
-        flag_meta.append({"key": f"{kind}:{key}", "kind": kind, "text": text, "amount": amount})
+        flag_meta.append({"key": f"{kind}:{key}", "kind": kind, "text": text, "amount": amount, "po": po})
 
     for l in lines:
         if l.get("unassigned"):
             for t in l["txns"]:
+                age = days(t.get("Date"), today)
+                if t.get("Type") == "Expense" and age is not None and age <= EXPENSE_GRACE:
+                    continue                    # give the PM a fortnight to link an expense claim
                 flag("link", f"{t.get('Type')} {t.get('Doc #')} from {t.get('Party')} "
-                             f"(${num(t.get('Amount')):,.0f}) isn't linked to a forecast", t, t.get("NetSuite ID") or t.get("Doc #"))
+                             f"(${num(t.get('Amount')):,.0f}) isn't linked to a forecast"
+                             + (f" ({age} days)" if t.get("Type") == "Expense" and age else ""), t, t.get("NetSuite ID") or t.get("Doc #"))
             continue
         if l["late"]:
             flag("late", f"{l['item']}: expected {l['date']} but no PO yet", None, l["item"])
@@ -360,16 +522,18 @@ def project_view(p: dict, forecasts: list, txns: list, schedule: list, today: st
                    f" (${fx:,.0f} of it exchange rate)" if fx else "")
             flag("over", f"{l['item']}: ${l['overrun']:,.0f} over forecast{why}", None, l["item"], round(l["overrun"], 2))
         for o, t in l["pct_gaps"]:
-            flag("terms", f"{l['item']}: {o} milestones add up to {t * 100:g}%, not 100%", None, f"{l['item']}|{o}|pct")
+            flag("terms", f"{l['item']}: {o} milestones add up to {t * 100:g}%, not 100%", None, f"{l['item']}|{o}|pct", po=o)
         for m in (l["milestones"] if l["open_commit"] > 0.5 else []):    # nothing left to bill: terms don't matter
             if not m.get("Confirmed") and not m.get("Billed Doc"):
                 flag("terms", f"{m.get('PO / Order #')} {m.get('Party')}: payment terms need checking "
-                              f"({m.get('Terms Text') or 'not read'})", None, m.get("PO / Order #"))
+                              f"({m.get('Terms Text') or 'not read'})", None, m.get("PO / Order #"), po=m.get("PO / Order #"))
                 break
     for t in pt:
         if (t.get("Type") == "Invoice" and not t.get("Paid Date") and t.get("Due Date")
                 and str(t["Due Date"]) < today):
             flag("overdue", f"Invoice {t.get('Doc #')} ${num(t.get('Amount')):,.0f} overdue since {t['Due Date']}", None, t.get("Doc #"))
+    for kind, text, key in housekeeping(code, lines, pt, forecasts, txns, today):
+        flag(kind, text, None, key)
 
     by_type = defaultdict(float)
     for l in lines:
@@ -500,6 +664,7 @@ def portfolio(projects, forecasts, txns, schedule, today=None):
     done = [p for p in projects if p.get("Status") == "Complete"]
     views = [project_view(p, forecasts, txns, schedule, today) for p in live]
     complete = [project_view(p, forecasts, txns, schedule, today) for p in done]
+    shared_accounts(live, views)
     fy_views = views + complete
     keys = ("contract", "contract_orig", "variations", "contract_diff", "gm", "nm", "labour", "cash_position")
     totals = {k: sum(v[k] for v in views) for k in keys}

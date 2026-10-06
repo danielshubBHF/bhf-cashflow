@@ -1,7 +1,8 @@
 // Cash by month, laid out like a standard cashflow chart:
 //   bars on the left axis   - money in (green, above zero) and money out (red, below zero) each month;
 //                             solid = happened, faded = still expected (overdue items sit in the current month)
-//   line on the right axis  - the running cash balance; solid up to today, dashed after
+//   line on the same axis   - the running cash balance; solid up to today, dashed after. One shared axis so
+//                             the balance reads straight off the same $ scale as the bars (zero is zero)
 //   a thin "Today" marker. The FY toggle filters months; each month keeps its real balance (server-side).
 (() => {
   const el = document.querySelector("canvas.cashchart");
@@ -24,8 +25,8 @@
       { type: "bar", label: "Money out", yAxisID: "y", order: 2, categoryPercentage: .7, barPercentage: .9,
         data: rows.map(r => -(r.out_actual + r.out_future)),
         backgroundColor: rows.map(r => (r.is_past ? K.out : K.outL)) },
-      { type: "line", label: "Cash balance", yAxisID: "y2", order: 1, data: rows.map(balance),
-        borderColor: K.line, backgroundColor: K.line, borderWidth: 2.5, pointRadius: 3, pointHoverRadius: 5, tension: .25,
+      { type: "line", label: "Cash balance", yAxisID: "y", stack: "balance", order: 1, data: rows.map(balance),
+        borderColor: K.line, backgroundColor: K.line, borderWidth: 2.5, pointRadius: 3, pointHoverRadius: 5, tension: 0,
         segment: { borderDash: c => (c.p0DataIndex >= lastPast ? [6, 5] : undefined) } },
     ];
   }
@@ -36,9 +37,8 @@
       hi = Math.max(hi, r.in_actual + r.in_future); lo = Math.min(lo, -(r.out_actual + r.out_future));
       const b = balance(r); bh = Math.max(bh, b); bl = Math.min(bl, b);
     });
-    const span = Math.max(hi, -lo) * 1.15 || 1;                  // keep zero in the middle of the bars
-    const pad = (bh - bl || Math.abs(bh) || 1) * .25;
-    return { y: { min: -span, max: span }, y2: { min: Math.min(0, bl - pad), max: bh + pad } };
+    const top = Math.max(hi, bh, 0), bot = Math.min(lo, bl, 0), pad = (top - bot || 1) * .08;
+    return { y: { min: bot < 0 ? bot - pad : 0, max: top + pad } };
   }
 
   // "Today" marker and the zero line.
@@ -95,11 +95,7 @@
              ticks: { font: c => ({ family: K.head, size: 12, weight: rows[c.index] && rows[c.index].is_current ? "700" : "500" }),
                       color: K.tick, maxRotation: 0, autoSkip: true } },
         y: { stacked: true, ...R.y, grid: { color: K.grid }, border: { display: false },
-             title: { display: true, text: "Monthly in / out", color: K.tick, font: { family: K.head, size: 12 } },
-             ticks: { callback: short, color: K.tick, font: { family: K.head, size: 12 }, maxTicksLimit: 7 } },
-        y2: { position: "right", ...R.y2, grid: { display: false }, border: { display: false },
-              title: { display: true, text: "Cash balance", color: K.line, font: { family: K.head, size: 12 } },
-              ticks: { callback: short, color: K.line, font: { family: K.head, size: 12 }, maxTicksLimit: 6 } },
+             ticks: { callback: short, color: K.tick, font: { family: K.head, size: 12 }, maxTicksLimit: 8 } },
       },
     },
   });
@@ -116,7 +112,7 @@
     const r = ranges();
     chart.data.labels = rows.map(x => x.label);
     chart.data.datasets = datasets();
-    Object.assign(chart.options.scales.y, r.y); Object.assign(chart.options.scales.y2, r.y2);
+    Object.assign(chart.options.scales.y, r.y);
     chart.update();
   }
   if (el.dataset.pick && el.dataset.pick !== "All") show(el.dataset.pick);

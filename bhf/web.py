@@ -189,6 +189,19 @@ async def ack_flag(request: Request, code: str):
     return _done(request, code, err, "attention")
 
 
+@app.post("/p/{code}/terms")
+async def set_terms(request: Request, code: str):
+    """From a "payment terms need checking" item: confirm the PO's milestones, or replace them with a typed split."""
+    if (r := auth.require(request)):
+        return r
+    form = await request.form()
+    po = str(form.get("po") or "")
+    if not po:
+        return _done(request, code, "Which PO?", "attention")
+    err = _safely(store.apply_terms, code, po, str(form.get("split") or ""), bool(form.get("confirm")))
+    return _done(request, code, err, "attention")
+
+
 @app.post("/link")
 def link(request: Request, code: str = Form(...), netsuite_id: str = Form(...), forecast: str = Form(...)):
     """Link an unassigned transaction to a forecast line (writes to Smartsheet)."""

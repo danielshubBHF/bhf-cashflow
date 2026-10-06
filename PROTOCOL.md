@@ -96,10 +96,18 @@ These are agreed with accounts.
 
 ### Weekly (PM, about 10 min per project)
 1. Open the project tab and clear **Needs attention**:
-   - **Unassigned:** link each one to a forecast line.
-   - **Terms need checking:** open the cost line, fix the milestone split, tick *Confirmed*, Save.
+   - **Unassigned:** link each one to a forecast line. Expense claims only show after 14 days unlinked.
+   - **Terms need checking:** type the actual split in the item's box (`30/70`, or `30% deposit, 70% on delivery`) and press *Apply*. That rewrites the PO's milestones (billed ones keep their bill) and confirms them. If the split shown is already right, press *Terms are right*.
    - **Late forecast:** the PO hasn't been raised. Chase it, or move the expected date in Forecast lines.
    - **Overrun:** decide whether it's real, and adjust if so.
+   - **Wrong project?** A PO or customer PO coded to this job that another job's forecast lists. Fix the coding in NetSuite, or the forecast.
+   - **Miscoded?** A line here isn't ordered yet, but a PO from the same supplier, within 25% of the amount, sits unlinked on another job.
+   - **Not billed:** the PO is received in NetSuite, with no bill for 30 days. Chase the supplier invoice.
+   - **Stale PO:** still open with nothing billed 90 days after it was due. Cancel it in NetSuite, or chase.
+   - **No PO on bill:** the bill wasn't raised from the PO, so the PO still shows open in NetSuite. Close the PO.
+   - **Customer PO:** an invoice with no customer PO number, or one no contract line lists.
+   - **Shared account:** two live jobs use the same Unearned Income or WIP account, so the P&L can't split them.
+   - Anything that's fine as it is: **Acknowledge** it, with an optional reason. It leaves the list and the counts, and is recorded in the Flag Log sheet. The reason is a note only; it doesn't change anything. An overrun comes back if it grows by more than 10% + $500. *N acknowledged* lists them, with *Restore*.
 2. Update **Expected Date** on any forecast or milestone that has slipped, so the cash curve stays honest.
 3. Tick **Closed** on any forecast line where spending is finished.
 
