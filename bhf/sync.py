@@ -45,7 +45,8 @@ def fetch_pdf(ns, d: dict):
     try:
         if d["type"] == "InvAdjst":
             return ns.stock_issue_pdf(int(d["id"]))
-        return ns.pdf(int(d["id"]))
+        got = ns.pdf(int(d["id"]), attached=d["type"] == "VendBill")   # bills: the supplier's own invoice
+        return got[:2] if got else None
     except Exception as e:                      # timeout, RESTlet error: retried next sync
         log.warning("PDF for %s %s not fetched: %s", d.get("type"), d.get("tranid"), e)
         return None
@@ -234,8 +235,39 @@ def attach_pdfs(T: Table, targets: list[tuple]) -> list[tuple[int, dict]]:
     return out
 
 
+def refetch_bills(dry: bool = False):
+    """One-off: swap NetSuite's printout for the supplier's own invoice on bills already attached. A refreshed
+    row gets Filed unticked so `python -m bhf.file_pdfs --replace-own` replaces the file it filed earlier."""
+    ns = NetSuite()
+    P, T = Table(config.SHEETS["projects"]), Table(config.SHEETS["transactions"])
+    live = {p["Project"] for p in P.load() if p.get("Status") not in ("Closed", "Complete")}
+    rows = [t for t in T.load() if t.get("Type") == "Bill" and t.get("PDF") and t.get("NetSuite ID")
+            and t.get("Project") in live]
+    swapped, none = [], 0
+    for t in rows:
+        got = None
+        try:
+            got = ns.pdf(int(t["NetSuite ID"]), attached=True)
+        except Exception as e:
+            log.warning("bill %s: %s", t.get("Doc #"), e)
+        if not got or got[2] != "attached":
+            none += 1
+            continue
+        if not dry:
+            T.attach(t["_id"], got[0], got[1])
+            T.update([(t["_id"], {"PDF": got[0], "Filed": False})])
+        swapped.append(f"{t['Project']} {t.get('Doc #')} -> {got[0]}")
+    for s in swapped:
+        log.info(s)
+    log.info("bills: %d swapped to the supplier's invoice, %d have no attached PDF (keep NetSuite's printout)%s",
+             len(swapped), none, " [dry run]" if dry else "")
+    return swapped
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--refetch-bills", action="store_true", help="one-off: use suppliers' own invoices for bills")
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    run(ap.parse_args().dry_run)
+    a = ap.parse_args()
+    refetch_bills(a.dry_run) if a.refetch_bills else run(a.dry_run)

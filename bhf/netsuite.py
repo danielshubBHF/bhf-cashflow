@@ -89,14 +89,18 @@ class NetSuite:
             "Record generated from NetSuite by the BHF cashflow sync (NetSuite has no print layout for inventory adjustments).")
         return f"Stock_Issue_{h.get('tranid')}.pdf", pdf
 
-    def pdf(self, txn_id: int):
+    def pdf(self, txn_id: int, attached: bool = False):
+        """(file name, bytes, source). attached=True asks for the PDF attached to the record (a bill's supplier
+        invoice) and falls back to NetSuite's printout; source says which ("attached" / "netsuite")."""
+        params = {"script": config.NS_RESTLET_SCRIPT, "deploy": config.NS_RESTLET_DEPLOY, "id": txn_id}
+        if attached:
+            params["attached"] = "1"
         # NetSuite picks the RESTlet's reply format from the request's Content-Type: ask for JSON.
-        r = requests.get(self.restlet, auth=self.auth, timeout=120, headers={"Content-Type": "application/json"},
-                         params={"script": config.NS_RESTLET_SCRIPT, "deploy": config.NS_RESTLET_DEPLOY, "id": txn_id})
+        r = requests.get(self.restlet, auth=self.auth, timeout=120, headers={"Content-Type": "application/json"}, params=params)
         if r.status_code != 200:
             return None
         b = r.json()
-        return b["name"], base64.b64decode(b["base64"])
+        return b["name"], base64.b64decode(b["base64"]), b.get("source", "netsuite")
 
 
 def amount(doc: dict) -> float:

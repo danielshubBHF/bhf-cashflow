@@ -140,6 +140,20 @@ def test_generated_stock_issue_pdf_is_readable():
     assert data[:4] == b"%PDF" and "BHF stock issue 1394" in text and "BHF26005 (Sanector) UF4" in text and "H-VCF" in text
 
 
+def test_replace_own_only_overwrites_files_this_script_made():
+    root = tree(BASE + [f"{PRJ}/{W}/{POS}/Mifelec/Bill I-4304 - Mifelec.pdf"])
+    try:
+        others = {"BHF26005": fp.files_under(root / PRJ / W / POS)}
+        p = fp.plan_one(T("Bill", "I-4304", "Mifelec Pty Ltd", "PO005969"), root / PRJ, "BHF26005", others, replace_own=True)
+        assert p.outcome == "REPLACE"
+        p = fp.plan_one(T("Bill", "114", "Plumblux"), root / PRJ, "BHF26005", others, replace_own=True)
+        assert p.outcome == "ALREADY_FILED"                                    # filed by hand: never overwritten
+        p = fp.plan_one(T("Bill", "I-4304", "Mifelec Pty Ltd", "PO005969"), root / PRJ, "BHF26005", others)
+        assert p.outcome == "ALREADY_FILED"
+    finally:
+        shutil.rmtree(root)
+
+
 def test_missing_project_folder_needs_a_person():
     root = tree([])
     try:

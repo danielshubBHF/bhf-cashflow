@@ -106,7 +106,7 @@ def supplier_folder(pos_dir: Path, t: dict, po_tree: list[Path]) -> tuple[Path |
     return pos_dir / safe(clean_vendor(t.get("Party") or "Other")), "new folder"
 
 
-def plan_one(t: dict, project_dir: Path, code: str, others: dict[str, list[Path]]) -> Plan:
+def plan_one(t: dict, project_dir: Path, code: str, others: dict[str, list[Path]], replace_own: bool = False) -> Plan:
     p, k = Plan(row=t), kind(t)
     pos_dir, offer_dir = project_dir / WORK / POS, project_dir / WORK / OFFER
     if not project_dir.is_dir():
@@ -156,7 +156,10 @@ def plan_one(t: dict, project_dir: Path, code: str, others: dict[str, list[Path]
         folder, how = (inv[0] if inv else offer_dir / "Invoices"), ("invoices folder" if inv else "new folder")
         hits = [f for f in files_under(offer_dir) if norm(t["Doc #"]) in norm(f.name)]
     p.folder, p.name = folder, file_name(t, code)
-    if hits:
+    own = [f for f in hits if f.name == p.name] or ([folder / p.name] if (folder / p.name).exists() else [])
+    if replace_own and own and all(f.name == p.name for f in hits):
+        p.outcome, p.matches = "REPLACE", [str(own[0].relative_to(project_dir))]    # only a file this script made
+    elif hits:
         p.outcome, p.matches = "ALREADY_FILED", [str(f.relative_to(project_dir)) for f in hits[:3]]
     elif (folder / p.name).exists():
         p.outcome, p.matches = "ALREADY_FILED", [str((folder / p.name).relative_to(project_dir))]
@@ -178,7 +181,7 @@ def download(T: Table, t: dict) -> bytes:
     return r.content
 
 
-def run(dry: bool = True, project: str | None = None, root: Path = ROOT) -> list[Plan]:
+def run(dry: bool = True, project: str | None = None, root: Path = ROOT, replace_own: bool = False) -> list[Plan]:
     P, T = Table(config.SHEETS["projects"]), Table(config.SHEETS["transactions"])
     projects = {p["Project"]: p for p in P.load() if p.get("SharePoint Folder")}
     rows = [t for t in T.load() if t.get("PDF") and not t.get("Filed") and t.get("Project") in projects
@@ -186,12 +189,16 @@ def run(dry: bool = True, project: str | None = None, root: Path = ROOT) -> list
     others = {c: files_under(root / p["SharePoint Folder"] / WORK / POS) for c, p in projects.items()}
     plans = []
     for t in sorted(rows, key=lambda t: (t["Project"], kind(t), str(t.get("Doc #")))):
-        p = plan_one(t, root / projects[t["Project"]]["SharePoint Folder"], t["Project"], others)
+        p = plan_one(t, root / projects[t["Project"]]["SharePoint Folder"], t["Project"], others, replace_own)
         plans.append(p)
         if dry or p.outcome == "NEEDS_YOU":
             continue
         try:
-            if p.outcome.startswith("UPLOAD"):
+            if p.outcome == "REPLACE":                       # our own earlier file, e.g. a bill printout
+                data = download(T, t)
+                with open(p.folder / p.name, "wb") as f:
+                    f.write(data)
+            elif p.outcome.startswith("UPLOAD"):
                 data = download(T, t)
                 p.folder.mkdir(parents=True, exist_ok=True)
                 with open(p.folder / p.name, "xb") as f:      # never overwrite an existing file
@@ -220,5 +227,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--project")
+    ap.add_argument("--replace-own", action="store_true", help="overwrite files this script filed earlier (same name)")
     a = ap.parse_args()
-    run(dry=a.dry_run, project=a.project)
+    run(dry=a.dry_run, project=a.project, replace_own=a.replace_own)

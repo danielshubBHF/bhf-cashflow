@@ -78,7 +78,7 @@ def main():
     if po:
         try:
             got = ns.pdf(int(po["id"]))
-            if got and got[1][:4] == b"%PDF":
+            if got and got[1][:4] == b"%PDF":     # (name, bytes, source)
                 ok(f"PDF RESTlet returned {got[0]} ({len(got[1]) // 1024} KB) for {po['tranid']}")
             else:
                 bad(f"PDF RESTlet for {po['tranid']}: no PDF back (is the script deployed, Released, and open to the role?)")
