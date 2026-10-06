@@ -41,5 +41,13 @@ envVarGroups:
         sync: false
       - key: DASHBOARD_PASSWORD
         sync: false
-      - key: ANTHROPIC_API_KEY
+      # Which Smartsheet sheets to use. While testing: the "0. Cashflow Database (TEST)" copies.
+      # At switch-over: delete these four and the app uses the real sheets (defaults in bhf/config.py).
+      - key: SHEET_PROJECTS
+        sync: false
+      - key: SHEET_FORECASTS
+        sync: false
+      - key: SHEET_TRANSACTIONS
+        sync: false
+      - key: SHEET_SCHEDULE
         sync: false
