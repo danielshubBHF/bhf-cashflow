@@ -1,4 +1,5 @@
 {% extends "base.html" %}{% from "_macros.html" import pipe, legend, cash_card, drawer, explain, basis, stage_cells, stage_heads, chart_help, position_strip, stage_strip %}
+{% from "_simple.html" import fy_recon %}
 {% block main %}
 {% set t = pf.totals %}{% set p = t.position %}
 <div class="pagebar">
@@ -8,45 +9,42 @@
   {% if t.flags %}<span class="pill warn">{{ t.flags }} item{{ '' if t.flags == 1 else 's' }} need attention</span>{% endif %}
 </div>
 
-{% if p %}{{ position_strip(p, 'd-o-in', 'd-o-out', 'd-o-now', 'd-o-final', 'everything in − everything out, live projects') }}{% endif %}
-
-<div class="kfacts">
-  <button type="button" class="kf" data-open="d-o-contract"><small>Contract value</small><b>{{ t.contract|money }}</b><span>{{ t.contract_orig|money }} original + {{ t.variations|money }} variations</span></button>
-  <button type="button" class="kf" data-open="d-o-in"><small>Invoiced / received</small><b>{{ t.invoiced|money }} <i>{{ t.invoiced|share(t.contract) }}</i></b><span>{{ t.received|money }} received ({{ t.received|share(t.contract) }} of contract)</span></button>
-  {% set d = t.cost_expected - t.cost_budget %}
-  <button type="button" class="kf" data-open="d-o-out"><small>Expected cost</small><b>{{ t.cost_expected|money }}</b><span>vs forecast {{ t.cost_budget|money }} · <em class="{{ 'bad' if d > 0.5 else 'good' if d < -0.5 }}">{{ d|signed }}</em>{% if t.cost_fx %} · {{ t.cost_fx|signed }} FX{% endif %}</span></button>
-  <button type="button" class="kf" data-open="d-o-final"><small>Gross margin → net after BHF labour</small><b class="{{ 'bad' if t.gm < 0 }}">{{ t.gm|money }} <i>{{ t.gm_pct|pct }}</i> → <span class="{{ 'bad' if t.nm < 0 }}">{{ t.nm|money }}</span> <i>{{ t.nm_pct|pct }}</i></b><span>labour {{ t.labour|money }}</span></button>
-  <button type="button" class="kf" data-open="d-o-now"><small>Lowest cash ahead</small><b class="{{ 'bad' if pf.low and pf.low.position < 0 }}">{{ pf.low.position|money if pf.low else '—' }}</b><span>{{ ('in ' ~ pf.low.label) if pf.low else '' }} · all live projects</span></button>
-</div>
+<p class="headline">
+  <button type="button" class="lk" data-open="d-o-contract">Contracts <b>{{ t.contract|money }}</b></button> <small>({{ t.contract_orig|money }} + {{ t.variations|money }} variations)</small>
+  · <button type="button" class="lk" data-open="d-o-out">Expected cost <b>{{ t.cost_expected|money }}</b></button>
+  · <button type="button" class="lk" data-open="d-o-final">Gross margin <b>{{ t.gm|money }}</b> {{ t.gm_pct|pct }} → net <b>{{ t.nm|money }}</b> after BHF labour</button>
+  <small>· live projects only; completed projects count in Financial years below</small>
+</p>
+{% if p %}{{ fy_recon(p, t.fy_docs, pf.fy_now, 'd-o-in', 'd-o-out', 'd-o-now') }}{% endif %}
 
 <div class="odash">
   <section class="card c-proj" aria-label="Projects">
     <div class="cap">Live projects <span class="tag">{{ pf.views|length }}</span><span class="more">click a project for its dashboard</span></div>
     <div class="cbody">
     <table class="tbl ptbl">
-      <thead><tr><th>Project</th><th>In: received<small>+ still to receive</small></th><th>Out: paid<small>+ still to pay</small></th><th>Cash now</th><th>Final position</th><th>Gross margin</th><th>Net after labour</th><th>Cost stages<small>paid → billed → on order → forecast</small></th><th class="c">Attention</th><th class="c">PDFs not filed</th></tr></thead>
+      <thead><tr><th>Project</th><th>Opening 1 Jul<small>received − paid before {{ pf.fy_now }}</small></th><th>{{ pf.fy_now }} received</th><th>{{ pf.fy_now }} paid</th><th>Cash now</th><th>To receive<small>− to pay</small></th><th>Final position</th><th>Gross margin</th><th>Net after labour</th><th class="c">Attention</th><th class="c">PDFs not filed</th></tr></thead>
       <tbody>
       {% for v in pf.views %}
       {% set c = v.cost %}{% set q = v.position %}
       <tr>
         <td><a href="/p/{{ v.code }}"><b>{{ v.code }}</b> {{ v.name }}</a><small>{{ v.pm }} · contract {{ v.contract|money }}</small></td>
-        <td class="num">{{ q.in_done|money }}<small>+ {{ q.in_tocome|money }}{% if q.in_overdue >= 0.5 %} · <span class="neg">{{ q.in_overdue|money }} overdue</span>{% endif %}</small></td>
-        <td class="num">{{ q.out_done|money }}<small>+ {{ q.out_tocome|money }}{% if q.out_overdue >= 0.5 %} · <span class="neg">{{ q.out_overdue|money }} overdue</span>{% endif %}</small></td>
-        <td class="num {{ 'neg' if q.now < 0 }}">{{ q.now|money }}{% if v.low %}<small>lowest {{ v.low.position|k }} {{ v.low.label }}</small>{% endif %}</td>
+        <td class="num">{{ q.opening|money }}</td>
+        <td class="num">{{ q.in_fy|money }}</td>
+        <td class="num">{{ q.out_fy|money }}</td>
+        <td class="num {{ 'neg' if q.now < 0 }}"><b>{{ q.now|money }}</b></td>
+        <td class="num">{{ q.in_tocome|money }}<small>− {{ q.out_tocome|money }}{% if q.in_overdue >= 0.5 or q.out_overdue >= 0.5 %} · <span class="neg">overdue</span>{% endif %}</small></td>
         <td class="num {{ 'neg' if q.final < 0 }}">{{ q.final|money }}</td>
         <td class="num {{ 'neg' if v.gm < 0 }}">{{ v.gm_pct|pct }}<small>{{ v.gm|money }}</small></td>
         <td class="num {{ 'neg' if v.nm < 0 }}">{{ v.nm_pct|pct }}<small>{{ v.nm|money }}</small></td>
-        <td class="pipecell">{{ pipe({'paid': c.paid, 'billed': c.billed, 'open_commit': c.open_commit, 'remaining': c.remaining, 'budget': c.budget}, [c.expected, c.budget]|max) }}<small>{{ c.expected|money }} expected{% set d = c.expected - c.budget %}{% if d|abs > 0.5 %} · <span class="{{ 'neg' if d > 0 else 'ok' }}">{{ d|signed }}</span>{% endif %}</small></td>
         <td class="c">{% if v.flags %}<a class="flagcount" href="/p/{{ v.code }}#attention">{{ v.flags|length }}</a>{% else %}<span class="ok">None</span>{% endif %}</td>
         <td class="c">{% if v.unfiled %}<span class="pill warn">{{ v.unfiled }}</span>{% else %}<span class="muted">–</span>{% endif %}</td>
       </tr>
       {% endfor %}
       {% if pf.views|length > 1 %}
-      <tr class="tot"><td>All live projects</td><td>{{ p.in_done|money }}</td><td>{{ p.out_done|money }}</td><td>{{ p.now|money }}</td><td>{{ p.final|money }}</td><td>{{ t.gm_pct|pct }}</td><td>{{ t.nm_pct|pct }}</td><td>{{ t.cost_expected|money }}</td><td class="c">{{ t.flags }}</td><td class="c">{{ t.unfiled }}</td></tr>
+      <tr class="tot"><td>All live projects</td><td>{{ p.opening|money }}</td><td>{{ p.in_fy|money }}</td><td>{{ p.out_fy|money }}</td><td>{{ p.now|money }}</td><td>{{ p.in_tocome|money }}<small>− {{ p.out_tocome|money }}</small></td><td>{{ p.final|money }}</td><td>{{ t.gm_pct|pct }}</td><td>{{ t.nm_pct|pct }}</td><td class="c">{{ t.flags }}</td><td class="c">{{ t.unfiled }}</td></tr>
       {% endif %}
       </tbody>
     </table>
-    {{ legend() }}
     </div>
   </section>
 

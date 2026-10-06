@@ -1,0 +1,82 @@
+{# The plain view: a cash reconciliation split at the financial year, then Incoming and Outgoing tables
+   like the old Smartsheet cashflow sheets. Everything else on the page is secondary. #}
+
+{% macro fy_recon(p, docs, fy, drill_in='', drill_out='', drill_now='') -%}
+{% set y = fy[2:]|int %}
+<section class="recon-strip" aria-label="Cash reconciliation">
+  <table class="rs">
+    <thead><tr>
+      <th></th><th>Before {{ fy }}<small>to 30 Jun {{ y - 1 }}</small></th><th>{{ fy }} to date<small>from 1 Jul {{ y - 1 }}</small></th>
+      <th class="hl">Total to date</th><th>Still to come</th><th class="hl">Final</th>
+    </tr></thead>
+    <tbody>
+      <tr><td>{% if drill_in %}<button type="button" class="lk" data-open="{{ drill_in }}">Money in</button>{% else %}Money in{% endif %} <small>received</small></td><td>{{ p.in_before|money }}</td><td><b>{{ p.in_fy|money }}</b></td><td class="hl">{{ p.in_done|money }}</td><td>{{ p.in_tocome|money }}{% if p.in_overdue >= 0.5 %}<small class="neg">{{ p.in_overdue|money }} overdue</small>{% endif %}</td><td class="hl">{{ (p.in_done + p.in_tocome)|money }}</td></tr>
+      <tr><td>{% if drill_out %}<button type="button" class="lk" data-open="{{ drill_out }}">Money out</button>{% else %}Money out{% endif %} <small>paid</small></td><td>{{ p.out_before|money }}</td><td><b>{{ p.out_fy|money }}</b></td><td class="hl">{{ p.out_done|money }}</td><td>{{ p.out_tocome|money }}{% if p.out_overdue >= 0.5 %}<small class="neg">{{ p.out_overdue|money }} overdue</small>{% endif %}</td><td class="hl">{{ (p.out_done + p.out_tocome)|money }}</td></tr>
+      <tr class="net"><td>{% if drill_now %}<button type="button" class="lk" data-open="{{ drill_now }}">Net cash</button>{% else %}Net cash{% endif %}</td><td>{{ p.opening|money }}<small>opening at 1 Jul</small></td><td><b class="{{ 'neg' if p.fy_net < 0 }}">{{ p.fy_net|signed }}</b></td><td class="hl"><b>{{ p.now|money }}</b><small>position now</small></td><td>{{ (p.in_tocome - p.out_tocome)|signed }}</td><td class="hl"><b>{{ p.final|money }}</b><small>final position</small></td></tr>
+    </tbody>
+  </table>
+  <div class="rs-docs"><b>{{ fy }} by document date</b> (NetSuite invoices and bills dated from 1 Jul {{ y - 1 }}):
+    invoiced <b>{{ docs.invoiced|money }}</b> · costs billed <b>{{ docs.billed|money }}</b> · difference <b>{{ (docs.invoiced - docs.billed)|signed }}</b></div>
+</section>
+{%- endmacro %}
+
+{% macro status_word(r, incoming) -%}
+{%- if r.done -%}{{ 'Received' if incoming else 'Paid' }}
+{%- elif r.kind == 'billed' -%}{{ 'Invoiced' if incoming else 'Billed' }}
+{%- elif r.kind == 'order' -%}{{ 'To invoice' if incoming else 'On order' }}
+{%- else -%}Forecast{%- endif -%}
+{%- endmacro %}
+
+{% macro incoming_table(groups, p, fy) -%}
+<section class="ct-card" aria-label="Incoming">
+  <div class="ct-head"><h3>Incoming</h3><span>{{ (p.in_done + p.in_tocome)|money }} · {{ p.in_done|money }} received · {{ p.in_tocome|money }} to come</span></div>
+  <table class="ct">
+    <colgroup><col><col style="width:7.5rem"><col style="width:6rem"><col style="width:6.5rem"></colgroup>
+    <thead><tr><th>Milestone</th><th class="n">Amount</th><th>Date</th><th>Status</th></tr></thead>
+    <tbody>
+    {% for g in groups %}{% set l = g.line %}
+      <tr class="grp"><td colspan="4"><button type="button" class="lk" data-open="lp-{{ g.key }}">{{ l.item }}</button>
+        <small>{{ l.party }}{% if l.refs %} · {{ l.refs|join(', ') }}{% endif %} · {{ l.expected|money }}</small></td></tr>
+      {% for r in g.rows %}
+      <tr class="{{ 'done' if r.done }}{{ ' late' if r.overdue }}"><td class="ind">{{ r.label }}</td><td class="n">{{ r.amount|money }}</td>
+        <td>{{ r.date|mdate if r.date else '—' }}</td><td>{{ status_word(r, True) }}{% if r.overdue %} · overdue{% endif %}{% if r.done and r.date and r.date >= fy_start(today()) %} <i class="fy">{{ fy }}</i>{% endif %}</td></tr>
+      {% endfor %}
+    {% else %}<tr><td colspan="4" class="muted">No incoming lines yet.</td></tr>{% endfor %}
+    </tbody>
+    <tfoot><tr><td>Total in</td><td class="n">{{ (p.in_done + p.in_tocome)|money }}</td><td colspan="2">{{ p.in_tocome|money }} to come</td></tr></tfoot>
+  </table>
+</section>
+{%- endmacro %}
+
+{% macro outgoing_table(groups, p, fy) -%}
+<section class="ct-card" aria-label="Outgoing">
+  <div class="ct-head"><h3>Outgoing</h3><span>{{ (p.out_done + p.out_tocome)|money }} · {{ p.out_done|money }} paid · {{ p.out_tocome|money }} to pay · click ▸ for payment stages</span></div>
+  <table class="ct">
+    <colgroup><col><col style="width:6.5rem"><col style="width:6.5rem"><col style="width:6.5rem"><col style="width:6rem"><col style="width:6.5rem"><col style="width:5.5rem"></colgroup>
+    <thead><tr><th>Item</th><th class="n">Forecast</th><th class="n">Actual</th><th class="n">Paid</th><th class="n">of which {{ fy }}</th><th class="n">To pay</th><th>Next due</th></tr></thead>
+    <tbody>
+    {% for g in groups %}{% set l = g.line %}
+      <tr class="ln{{ ' done' if not g.tocome and g.done }}{{ ' late' if g.overdue }}" data-k="{{ g.key }}">
+        <td>{% if g.rows %}<button type="button" class="tg" aria-expanded="false" aria-label="Show payment stages">▸</button>{% endif %}
+          <button type="button" class="lk" data-open="lp-{{ g.key }}">{{ l.item }}</button>
+          <small>{{ l.party or '' }}{% if l.orders %} · {{ l.orders|join(', ') }}{% endif %}</small></td>
+        <td class="n muted">{{ l.budget|money if l.budget else '—' }}</td>
+        <td class="n">{{ l.expected|money if l.expected|abs >= 0.5 else '—' }}{% if l.overrun > 0.5 %}<small class="neg">{{ l.overrun|money }} over{{ ' (FX)' if l.fx and (l.overrun - l.fx)|abs < 1 }}</small>{% endif %}</td>
+        <td class="n">{{ g.done|money if g.done else '—' }}</td>
+        <td class="n muted">{{ g.done_fy|money if g.done_fy else '—' }}</td>
+        <td class="n"><b>{{ g.tocome|money if g.tocome else '—' }}</b></td>
+        <td>{{ g.next|mdate if g.next else ('Paid' if g.done and not g.tocome else '—') }}{% if g.overdue %}<small class="neg">overdue</small>{% endif %}</td>
+      </tr>
+      {% for r in g.rows %}
+      <tr class="stg{{ ' done' if r.done }}{{ ' late' if r.overdue }}" data-for="{{ g.key }}" hidden>
+        <td class="ind">{{ r.label }}{% if r.party and r.party != l.party %} <small>{{ r.party }}</small>{% endif %}</td><td></td>
+        <td class="n">{{ r.amount|money }}</td><td class="n">{{ r.amount|money if r.done else '' }}</td><td class="n muted">{{ r.amount|money if r.done and r.date and r.date >= fy_start(today()) else '' }}</td>
+        <td class="n">{{ '' if r.done else r.amount|money }}</td><td>{{ r.date|mdate if r.date else '—' }} · {{ status_word(r, False) }}</td>
+      </tr>
+      {% endfor %}
+    {% else %}<tr><td colspan="7" class="muted">No cost lines yet.</td></tr>{% endfor %}
+    </tbody>
+    <tfoot><tr><td>Total out</td><td class="n">{{ (groups|map(attribute='line')|map(attribute='budget')|sum)|money }}</td><td class="n">{{ (p.out_done + p.out_tocome)|money }}</td><td class="n">{{ p.out_done|money }}</td><td class="n">{{ p.out_fy|money }}</td><td class="n">{{ p.out_tocome|money }}</td><td></td></tr></tfoot>
+  </table>
+</section>
+{%- endmacro %}

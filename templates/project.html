@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% from "_macros.html" import pipe, legend, reconcile, cash_card, fy_table, fy_compare, drawer, explain, basis, stage_strip, stage_cells, stage_heads, chart_help, position_strip, line_ledger, line_panel %}{% from "_editor.html" import forecast_editor %}
+{% extends "base.html" %}{% from "_macros.html" import pipe, legend, reconcile, cash_card, fy_table, fy_compare, drawer, explain, basis, stage_strip, stage_cells, stage_heads, chart_help, position_strip, line_ledger, line_panel %}{% from "_editor.html" import forecast_editor %}{% from "_simple.html" import fy_recon, incoming_table, outgoing_table %}
 {% block title %}{{ v.code }} {{ v.name }} · Project Cashflow{% endblock %}
 {% block main %}
 {% set c = v.cost %}{% set p = v.position %}
@@ -12,43 +12,21 @@
 </div>
 {% if err %}<p class="error" role="alert">Not saved: {{ err }}</p>{% endif %}
 
-{{ position_strip(p, 'd-in', 'd-out', 'd-fy', 'd-margin',
-   ('= margin before BHF labour' if (p.final - v.gm)|abs < 1 else 'margin on contract value: ' ~ v.gm|money)) }}
-
-<div class="kfacts">
-  <button type="button" class="kf" data-open="d-contract"><small>Contract value</small><b>{{ v.contract|money }}</b><span>{{ v.contract_orig|money }} original + {{ v.variations|money }} variations{% if v.contract_diff %} · {{ v.contract_diff|signed }} not on an incoming line{% endif %}</span></button>
-  <button type="button" class="kf" data-open="d-in"><small>Invoiced / received</small><b>{{ v.rev.billed|money }} <i>{{ v.rev.billed|share(v.contract) }}</i></b><span>{{ v.rev.paid|money }} received ({{ v.rev.paid|share(v.contract) }} of contract)</span></button>
-  {% set d = c.expected - c.budget %}
-  <button type="button" class="kf" data-open="d-out"><small>Expected cost</small><b>{{ c.expected|money }}</b><span>vs forecast {{ c.budget|money }} · <em class="{{ 'bad' if d > 0.5 else 'good' if d < -0.5 }}">{{ d|signed }}</em>{% if c.fx %} · {{ c.fx|signed }} FX{% endif %}</span></button>
-  <button type="button" class="kf" data-open="d-margin"><small>Gross margin → net after BHF labour</small><b class="{{ 'bad' if v.gm < 0 }}">{{ v.gm|money }} <i>{{ v.gm_pct|pct }}</i> → <span class="{{ 'bad' if v.nm < 0 }}">{{ v.nm|money }}</span> <i>{{ v.nm_pct|pct }}</i></b><span>labour {{ v.labour|money }}</span></button>
-  <button type="button" class="kf" data-open="d-fy"><small>Lowest cash ahead</small><b class="{{ 'bad' if v.low and v.low.position < 0 }}">{{ v.low.position|money if v.low else '—' }}</b><span>{{ ('in ' ~ v.low.label) if v.low else '' }} · by financial year</span></button>
-</div>
-
-<div class="plists">
-  {{ line_ledger(v.ledger_lines['in'], True, v.money['in'], 'd-in', 'c-inl') }}
-  {{ line_ledger(v.ledger_lines.out, False, v.money.out, 'd-out', 'c-outl') }}
+{% set c = v.cost %}
+<p class="headline">
+  <button type="button" class="lk" data-open="d-contract">Contract <b>{{ v.contract|money }}</b></button>{% if v.variations %} <small>({{ v.contract_orig|money }} + {{ v.variations|money }} variations)</small>{% endif %}
+  · <button type="button" class="lk" data-open="d-out">Expected cost <b>{{ c.expected|money }}</b></button>
+  · <button type="button" class="lk" data-open="d-margin">Gross margin <b class="{{ 'neg' if v.gm < 0 }}">{{ v.gm|money }}</b> {{ v.gm_pct|pct }} → net <b>{{ v.nm|money }}</b> after BHF labour</button>
+</p>
+{{ fy_recon(p, v.fy_docs.get(v.fy_now, {'invoiced': 0, 'billed': 0}), v.fy_now, 'd-in', 'd-out', 'd-fy') }}
+<div class="ctables">
+  {{ incoming_table(v.ledger_lines['in'], p, v.fy_now) }}
+  {{ outgoing_table(v.ledger_lines.out, p, v.fy_now) }}
 </div>
 
 <div class="pdash">
 
   {{ cash_card(v.curve, v.fy, v.fy_now, 'c-cash') }}
-
-  <section class="card c-costs" id="costs" aria-label="Cost lines">
-    <div class="cap">Cost lines <span class="tag">{{ v.lines_out|length }}</span><span class="more">hover a bar for its stages · click to open</span></div>
-    {{ legend() }}
-    {% set scale = (v.lines_out|map(attribute='expected')|max) if v.lines_out else 1 %}
-    {% set st = {'ordered': 'Ordered', 'to_place': 'To place', 'closed': 'Closed', 'unlinked': 'Not linked'} %}
-    <div class="cbody lrows">
-    {% for l in v.lines_out %}
-      {% if loop.first or l.status != loop.previtem.status %}<div class="lgrp">{{ st[l.status] }}</div>{% endif %}
-      <button type="button" class="lrow{{ ' unassigned' if l.unassigned }}" data-open="lp-{{ l.key }}">
-        <span class="nm">{{ l.item }}<small>{{ l.party or '—' }}{% if l.orders %} · {{ l.orders|join(', ') }}{% endif %}</small></span>
-        {{ pipe(l, scale) }}
-        <span class="v">{{ l.expected|money if l.expected|abs >= 0.5 else '—' }}{% if l.overrun > 0.5 %}<small class="neg">{{ l.overrun|money }} over{{ ' · FX' if l.fx and (l.overrun - l.fx)|abs < 1 }}</small>{% elif l.budget and l.overrun < -0.5 %}<small class="pos">{{ (-l.overrun)|money }} under</small>{% elif l.remaining > 0.5 %}<small>{{ l.remaining|money }} to place</small>{% endif %}</span>
-      </button>
-    {% else %}<p class="empty">No cost lines yet. Add them under Forecast &amp; payments.</p>{% endfor %}
-    </div>
-  </section>
 
   <section class="card c-attn" id="attention" aria-label="Needs attention">
     <div class="cap">Needs attention {% if v.flags %}<span class="tag warn">{{ v.flags|length }}</span>{% endif %}</div>

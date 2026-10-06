@@ -390,13 +390,13 @@ def project_view(p: dict, forecasts: list, txns: list, schedule: list, today: st
                    for d in ("In", "Out")],
         "curve": curve, "fy": fy_totals(curve), "fy_now": fy_of(today[:7]), "low": low_point(curve), "flags": flags, "by_type": dict(sorted(by_type.items(), key=lambda x: -x[1])),
         "unfiled": unfiled(pt),
-        "ledger": ledger, "position": position(ledger), "ledger_lines": ledger_lines(lines, ledger),
+        "ledger": ledger, "position": position(ledger, today), "ledger_lines": ledger_lines(lines, ledger, fy_start(today)),
         "money": {"in": stages(rev), "out": stages(cost)},
         "fy_docs": fy_documents(pt), "first_date": first_date(pt),
     }
 
 
-def ledger_lines(lines: list, ledger: dict) -> dict:
+def ledger_lines(lines: list, ledger: dict, start: str = "") -> dict:
     """The ledger grouped by forecast line, in Forecasts-sheet order (unlinked documents last), like the old
     Smartsheet cashflow sheets: a line, then its payments by date (done first)."""
     out = {}
@@ -407,20 +407,37 @@ def ledger_lines(lines: list, ledger: dict) -> dict:
             rows = sorted([r for r in ledger[side] if r["key"] == key], key=lambda r: (not r["done"], r["date"] or "9999"))
             groups.append({"key": key, "line": l, "rows": rows,
                            "done": round(sum(r["amount"] for r in rows if r["done"]), 2),
+                           "done_fy": round(sum(r["amount"] for r in rows if r["done"] and (r["date"] or "") >= start), 2),
+                           "next": next((r["date"] for r in rows if not r["done"] and r["date"]), None),
                            "tocome": round(sum(r["amount"] for r in rows if not r["done"]), 2),
                            "overdue": any(r["overdue"] for r in rows)})
         out[side] = groups
     return out
 
 
-def position(ledger: dict) -> dict:
-    """The cashflow statement: received - paid = cash now; + still to receive - still to pay = final position."""
+def fy_start(today: str) -> str:
+    """First day of the financial year `today` falls in: 2026-10-06 -> 2026-07-01 (FY27)."""
+    y, m = int(today[:4]), int(today[5:7])
+    return f"{y if m >= 7 else y - 1}-07-01"
+
+
+def position(ledger: dict, today: str | None = None) -> dict:
+    """The cashflow statement: received - paid = cash now; + still to receive - still to pay = final position.
+    With `today`, cash now is split at the start of this financial year:
+    opening (received - paid before 1 Jul) + this FY (received - paid since) = cash now."""
     s = {f"{side}_{w}": round(sum(r["amount"] for r in rows if r["done"] == (w == "done")), 2)
          for side, rows in ledger.items() for w in ("done", "tocome")}
     s["in_overdue"] = round(sum(r["amount"] for r in ledger["in"] if r["overdue"]), 2)
     s["out_overdue"] = round(sum(r["amount"] for r in ledger["out"] if r["overdue"]), 2)
     s["now"] = round(s["in_done"] - s["out_done"], 2)
     s["final"] = round(s["now"] + s["in_tocome"] - s["out_tocome"], 2)
+    if today:
+        start = fy_start(today)
+        for side in ("in", "out"):
+            s[f"{side}_before"] = round(sum(r["amount"] for r in ledger[side] if r["done"] and (r["date"] or "") < start), 2)
+            s[f"{side}_fy"] = round(s[f"{side}_done"] - s[f"{side}_before"], 2)
+        s["opening"] = round(s["in_before"] - s["out_before"], 2)
+        s["fy_net"] = round(s["in_fy"] - s["out_fy"], 2)
     return s
 
 
@@ -492,7 +509,10 @@ def portfolio(projects, forecasts, txns, schedule, today=None):
     totals["unfiled"] = sum(v["unfiled"] for v in views)
     totals["money"] = {d: {k: round(sum(v["money"][d][k] for v in views), 2) for k in ("paid", "unpaid", "on_order", "to_place", "expected")}
                        for d in ("in", "out")}
-    totals["position"] = {k: round(sum(v["position"][k] for v in views), 2) for k in (views[0]["position"] if views else {})}
+    totals["position"] = {k: round(sum(v["position"][k] for v in views), 2)
+                          for k, x in (views[0]["position"].items() if views else []) if isinstance(x, (int, float))}
+    now_fy = fy_of(today[:7])
+    totals["fy_docs"] = {k: round(sum(v["fy_docs"].get(now_fy, {}).get(k, 0.0) for v in views), 2) for k in ("invoiced", "billed")}
     curve = merged_curve(views, today)
     curve_fy = merged_curve(fy_views, today)
     return {"views": views, "complete": complete, "totals": totals, "curve": curve, "curve_fy": curve_fy,

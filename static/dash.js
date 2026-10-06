@@ -137,3 +137,12 @@
   }
   ["bhf-drawer", "bhf-drawer-scroll", "bhf-open", "bhf-edit"].forEach(del);
 })();
+
+// Outgoing table: ▸ shows / hides a line's payment stages.
+document.addEventListener("click", e => {
+  const b = e.target.closest(".ct .tg");
+  if (!b) return;
+  const tr = b.closest("tr"), open = b.getAttribute("aria-expanded") !== "true";
+  b.setAttribute("aria-expanded", String(open));
+  document.querySelectorAll(`.ct tr.stg[data-for="${CSS.escape(tr.dataset.k)}"]`).forEach(r => { r.hidden = !open; });
+});

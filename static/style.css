@@ -528,3 +528,47 @@ body.login p{margin:0;font-size:12px}
 .lp-acts .lnk{font:inherit;font-weight:600;color:var(--cyan-d);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline}
 @media (min-width:1101px) and (max-width:1700px){ .lh{grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"t t a" "p s a";row-gap:6px} .lh-t{grid-area:t} .lh-p{grid-area:p} .lh-s{grid-area:s} .lh-a{grid-area:a} .c-inl .pr{grid-template-columns:minmax(0,1fr) 80px auto 104px;gap:8px} }
 .tbl.ptbl{font-size:13px} .tbl.ptbl td small{font-size:11px} .tbl.ptbl thead th{font-size:9.5px} .tbl.fyt{font-size:12.5px}
+
+/* ---- the plain view: cash reconciliation split at the financial year, then Incoming / Outgoing tables */
+.pdash .c-cash{grid-column:span 8} .pdash .c-attn{grid-column:span 4}
+.headline{margin:0;font-size:13.5px;color:var(--grey)}
+.headline small{display:inline;font-size:12px}
+.lk{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.lk:hover{color:var(--cyan-d);text-decoration:underline}
+.headline b{font-family:var(--head);color:var(--navy);font-variant-numeric:tabular-nums}
+.recon-strip{background:#fff;border-radius:var(--r);box-shadow:var(--sh);padding:10px 14px 8px}
+.rs{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.rs th{font-family:var(--head);font-size:11.5px;font-weight:600;color:var(--grey);text-align:right;padding:2px 10px 6px;border-bottom:1px solid var(--edge);white-space:nowrap}
+.rs th:first-child,.rs td:first-child{text-align:left}
+.rs th small{display:block;font-weight:400}
+.rs td{text-align:right;padding:5px 10px;font-size:14px;font-family:var(--head);color:var(--navy);border-bottom:1px solid var(--line);white-space:nowrap}
+.rs td:first-child{font-family:var(--body);font-size:13px;color:var(--ink)}
+.rs td small{display:block;font-family:var(--body)}
+.rs .hl{background:var(--tile)}
+.rs tr.net td{border-bottom:0;font-size:15.5px}
+.rs-docs{font-size:12px;color:var(--grey);padding:6px 10px 0}
+.rs-docs b{font-family:var(--head);color:var(--navy)}
+.ctables{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:12px;align-items:start}
+.ct-card{background:#fff;border-radius:var(--r);box-shadow:var(--sh);padding:10px 12px 8px}
+.ct-head{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
+.ct-head h3{margin:0;font-family:var(--head);font-size:15px;color:var(--navy)}
+.ct-head span{font-size:12px;color:var(--muted)}
+.ct{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px}
+.ct th{font-size:11px;font-weight:600;color:var(--grey);text-align:left;padding:4px 6px;border-bottom:1px solid var(--edge);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ct td{padding:4px 6px;border-bottom:1px solid var(--line);vertical-align:top;overflow:hidden;text-overflow:ellipsis}
+.ct td small{display:inline;margin-left:6px;font-size:11px}
+.ct .n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ct .n small{display:block;margin:0}
+.ct tr.grp td{background:var(--tile);font-weight:600;color:var(--navy);padding-top:6px}
+.ct tr.grp td small{font-weight:400}
+.ct td.ind{padding-left:18px}
+.ct tr.done td{color:var(--muted)}
+.ct tr.late td:last-child{color:var(--bad)}
+.ct tr.ln td:first-child .lk{font-weight:600;color:var(--navy)}
+.ct tr.stg td{background:#fbfcfd;font-size:12.5px}
+.ct .tg{border:0;background:none;cursor:pointer;color:var(--muted);padding:0 4px 0 0;font-size:11px;width:14px}
+.ct .tg[aria-expanded="true"]{transform:rotate(90deg)}
+.ct tfoot td{font-weight:700;color:var(--navy);border-top:2px solid var(--edge);border-bottom:0;padding-top:6px}
+.ct i.fy{font-style:normal;font-size:10px;color:var(--cyan-d);margin-left:4px}
+.muted{color:var(--muted)} .neg{color:var(--bad)}
+@media (max-width:1300px){ .ctables{grid-template-columns:1fr} }

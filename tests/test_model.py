@@ -57,6 +57,18 @@ def test_terms_flag_only_while_money_is_still_to_come():
     flags = [t for k, t, _ in project_view(PROJECTS[0], FORECASTS, tx, s, "2026-10-05")["flags"] if k == "terms"]
     assert not any("PO006182" in t for t in flags)                                          # fully billed: no noise
 
+def test_cash_now_splits_at_financial_year_start():
+    # 26001 on 2026-10-05 (FY27 from 1 Jul 26): all receipts and most payments were before 1 July
+    p = v["position"]
+    assert round(p["in_before"], 2) == 832350.00 and p["in_fy"] == 0
+    assert round(p["out_before"] + p["out_fy"], 2) == round(p["out_done"], 2)
+    assert round(p["out_fy"], 2) == round(9294.55 + 3224 + 1549.14, 2)    # D2 (27 Jul), Scinor 20% (21 Aug), jar testing (2 Oct)
+    assert round(p["opening"] + p["fy_net"], 2) == round(p["now"], 2)
+    g = next(g for g in v["ledger_lines"]["out"] if g["line"]["item"] == "Jar testing")
+    assert g["done_fy"] == 3224
+    from bhf.model import fy_start
+    assert fy_start("2026-10-06") == "2026-07-01" and fy_start("2027-03-01") == "2026-07-01" and fy_start("2026-06-30") == "2025-07-01"
+
 def test_breakdown_adds_up_on_every_line():
     for l in v["lines_out"] + v["lines_in"]:
         if not l.get("unassigned"):
@@ -210,7 +222,7 @@ def test_ledger_grouped_by_line_in_sheet_order():
 
 if __name__ == "__main__":
     for f in (test_ties_to_netsuite, test_bucket_logic, test_fx_gain_is_under_not_to_place, test_fx_overrun_is_labelled,
-              test_closed_po_stops_counting_unbilled_balance, test_standalone_bill_uses_up_open_po, test_terms_flag_only_while_money_is_still_to_come, test_breakdown_adds_up_on_every_line, test_cash_curve_balances,
+              test_closed_po_stops_counting_unbilled_balance, test_standalone_bill_uses_up_open_po, test_terms_flag_only_while_money_is_still_to_come, test_cash_now_splits_at_financial_year_start, test_breakdown_adds_up_on_every_line, test_cash_curve_balances,
               test_contract_split_original_and_variations, test_overdue_moves_to_current_month, test_actual_position_and_projection,
               test_fy_totals, test_editor_blocks_group_by_status,
               test_money_stages_add_up, test_ledger_is_the_cashflow_statement, test_complete_projects_count_only_for_financial_years,

@@ -232,18 +232,19 @@ def test_statement_and_drills_render():
     tabs = [(v["code"], v["name"]) for v in pf["views"]]
     base = {"request": None, "pf": pf, "tabs": tabs, "user": "BHF", "forecast_items": [], "as_at": "demo data"}
     page = web.tpl.env.get_template("project.html").render(**base, active="BHF26001", v=pf["views"][0])
-    for want in ("Cash now", "Still to receive", "Final position", "Incoming — customer", "Outgoing — suppliers",
-                 "35% FAT", "Billed, not paid", "How to read the cash chart"):
+    for want in ("Before FY27", "FY27 to date", "Total to date", "Still to come", "final position", "by document date",
+                 "Incoming", "Outgoing", "35% FAT", "of which FY27", "How to read the cash chart"):
         assert want in page, want
-    for d in ("d-in", "d-out", "d-fy", "d-margin", "d-contract", "d-chart", "d-forecast"):
+    for d in ("d-out", "d-margin", "d-contract", "d-chart", "d-forecast"):
         assert f'data-open="{d}"' in page and f'id="{d}"' in page, d                 # every figure drills somewhere
-    # In / Out grouped by line, each line and payment opening that line's side panel (read + edit slot)
-    out = page[page.index('data-list="out"'):page.index('class="pdash"')]
-    i = out.index("<b>Bondalti - main system supply</b>")
-    assert i < out.index("35% FAT") < out.index("<b>Bondalti - engineering design (pre-flattening)</b>")
+    # Outgoing: one row per line, its payment stages hidden beneath it; each line opens its side panel
+    out = page[page.index('aria-label="Outgoing"'):page.index('class="pdash"')]
+    i = out.index(">Bondalti - main system supply</button>")
+    assert i < out.index("35% FAT") < out.index(">Bondalti - engineering design (pre-flattening)</button>")
     for g in pf["views"][0]["ledger_lines"]["out"]:
         assert f'data-open="lp-{g["key"]}"' in out and f'id="lp-{g["key"]}"' in page and f'data-edit="{g["key"]}"' in page
-    assert page.count('data-filter="overdue"') == 2 and 'class="lp-slot"' in page
+    q = pf["views"][0]["position"]
+    assert f"{q['opening']:,.0f}" in page and f"{q['out_fy']:,.0f}" in page               # FY split shown
     assert page.count('id="fc-') == len(pf["views"][0]["forecast_lines"]) + 2           # each form once (panels borrow it)
     ov = web.tpl.env.get_template("overview.html").render(**base, active="overview")
     assert "BHF25009" not in ov.split('class="odash"')[0]                          # not a tab, not in the live table
