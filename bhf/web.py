@@ -79,7 +79,12 @@ def ctx(request, **kw):
     pls = {v["code"]: pl.project_pl(rows[v["code"]], v, today, ((b or {}).get("pl_actuals") or {}).get(v["code"]) if b else None)
            for v in pf["views"]}
     fy = model.fy_of(today[:7])
-    bv = model.budget_view(b, pf["views"], today, {k: pl.fy_remaining(x, fy, today) for k, x in pls.items()})
+    by_month = {}
+    for x in pls.values():
+        for r in x["rows"]:
+            name = f"{model.MONTHS[int(r['month'][5:7]) - 1]} {r['month'][:4]}"
+            by_month[name] = by_month.get(name, 0.0) + r["rev"]
+    bv = model.budget_view(b, pf["views"], today, {k: pl.fy_remaining(x, fy, today) for k, x in pls.items()}, by_month)
     return {"request": request, "pf": pf, "bv": bv, "pls": pls, "tabs": [(v["code"], v["name"]) for v in pf["views"]],
             "user": request.session.get("user"), "demo": store.demo,
             "as_at": "demo data" if store.demo else (synced or "not synced yet"), **kw}

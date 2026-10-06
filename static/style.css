@@ -810,3 +810,22 @@ table.editor td.gap{font-size:12px}
 @media (max-height:880px){ .js .pane .odash{min-height:200px} .js .pane .bud-tables{min-height:200px} }
 .board{padding-top:8px} header.top{min-height:38px}
 .js .ovl.side .sheet{max-width:min(720px,100vw)}
+
+/* ---- tighter FY budget card: less padding, chart fills the space under the projects table */
+.budget{padding:10px 16px}
+.bud-line{margin:4px 0 8px}
+.bud-line>div{padding:5px 12px 5px}
+.bud-line b{font-size:20px;line-height:1.2}
+.bud-line small,.bud-line span{font-size:12px}
+.budget .ct td{padding:4px 10px} .budget .ct th{padding:5px 10px}
+.bud-right{display:flex;flex-direction:column;gap:10px;min-height:0;min-width:0}
+.bud-right>.ct-scroll{flex:none}
+.bud-chart{position:relative;flex:1;min-height:190px}
+.bud-note{margin:4px 0 0}
+
+/* ---- less white space: Cash tab project rows, Financial years card */
+.ptbl td{padding:5px 10px} .ptbl th{padding:5px 10px}
+.ptbl td small{display:inline;margin-left:6px}
+.fy-sub{margin:10px 0 4px;font-family:var(--head);font-size:13.5px;color:var(--navy)}
+.fyproj td small{display:inline;margin-left:4px}
+.fyproj td,.fyproj th{padding:4px 8px}

@@ -112,7 +112,7 @@
       </tbody>
       <tfoot><tr><td>{{ bv.fy }}</td><td class="n">{{ bv.budget_year|money }}</td><td class="n">{{ bv.actual_ytd|money }}</td><td class="n">{{ bv.vs_closed|signed }}<small>closed months</small></td></tr></tfoot>
     </table></div>
-    <div class="ct-scroll"><table class="ct bud-proj">
+    <div class="bud-right"><div class="ct-scroll"><table class="ct bud-proj">
       <thead><tr><th>Live project</th><th class="n">Contract</th><th class="n">Recognised before {{ bv.fy }}</th><th class="n">{{ bv.fy }} recognised</th>{% if bv.scheduled_rest is not none %}<th class="n">Rest of {{ bv.fy }} (formula)</th>{% endif %}<th class="n">Still to recognise</th></tr></thead>
       <tbody>
       {% for p in bv.projects %}<tr><td><a href="/p/{{ p.code }}"><b>{{ p.code }}</b> {{ p.name }}</a></td><td class="n">{{ p.contract|money }}</td>
@@ -124,7 +124,10 @@
       </tbody>
       <tfoot><tr><td>Total</td><td></td><td></td><td class="n">{{ bv.actual_ytd|money }}</td>{% if x %}<td class="n">{{ bv.scheduled_rest|money }}</td>{% endif %}<td class="n">{{ bv.secured|money }}</td></tr></tfoot>
     </table></div>
+    <div class="bud-chart"><canvas id="budchart" aria-label="{{ bv.fy }} cumulative budget vs actual"></canvas></div>
+    </div>
   </div>
+  <script>window.BUDROWS = {{ bv.rows|tojson }};</script>
   <p class="bud-note">Secured assumes each live project's remaining contract is recognised by 30 June; some may fall into the next year. Recognised = journals releasing each project's Unearned Income into Systems sales, plus invoices posted straight to Systems sales.</p>
 </section>
 {% else %}

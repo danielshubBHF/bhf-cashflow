@@ -194,3 +194,36 @@ document.addEventListener("submit", e => {
   const m = e.target.dataset && e.target.dataset.confirm;
   if (m && !confirm(m)) e.preventDefault();
 });
+
+// FY budget card: cumulative budget vs actual, with the P&L formula carrying on from where actuals stop.
+(() => {
+  const el = document.getElementById("budchart"), rows = window.BUDROWS;
+  if (!el || !rows || !window.Chart) return;
+  const css = getComputedStyle(document.documentElement), v = n => css.getPropertyValue(n).trim();
+  let b = 0, a = 0, last = -1;
+  const bud = [], act = [], proj = [];
+  rows.forEach((r, i) => {
+    b += r.budget; bud.push(Math.round(b));
+    if (r.closed) { a += r.actual; act.push(Math.round(a)); last = i; } else act.push(null);
+  });
+  let p = a;
+  rows.forEach((r, i) => {
+    if (i < last) proj.push(null);
+    else if (i === last) proj.push(Math.round(a));
+    else { p += r.formula; proj.push(Math.round(p)); }
+  });
+  if (last < 0) proj[0] = Math.round(rows[0].formula);
+  const fmt = n => "$" + (Math.abs(n) >= 1e6 ? (n / 1e6).toFixed(2) + "M" : Math.round(n / 1000) + "k");
+  new Chart(el, {
+    type: "line",
+    data: { labels: rows.map(r => r.label), datasets: [
+      { label: "Budget (cumulative)", data: bud, borderColor: v("--muted") || "#7c8894", borderWidth: 2, pointRadius: 0, tension: 0 },
+      { label: "Actual (closed months)", data: act, borderColor: v("--navy") || "#0E2A47", backgroundColor: v("--navy") || "#0E2A47", borderWidth: 3, pointRadius: 3, tension: 0 },
+      { label: "Projected by P&L formula", data: proj, borderColor: v("--cyan") || "#00A4C7", borderDash: [6, 4], borderWidth: 2, pointRadius: 0, tension: 0 },
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+      plugins: { legend: { position: "top", align: "end", labels: { boxWidth: 14, font: { size: 12 } } },
+                 tooltip: { callbacks: { label: c => c.parsed.y == null ? null : `${c.dataset.label}: ${fmt(c.parsed.y)}` } } },
+      scales: { y: { ticks: { callback: fmt, font: { size: 12 } }, grid: { color: "#eef2f6" } }, x: { ticks: { font: { size: 12 } }, grid: { display: false } } } },
+  });
+})();

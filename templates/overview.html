@@ -85,6 +85,14 @@
       </tbody>
     </table>
     <p class="hint fyhint">Actuals only. {% for f in pf.fy_all if f.from %}{{ f.fy }} is a part year: the loaded history starts {{ f.from }}. {% endfor %}{% for f in pf.fy_all if f.current %}{{ f.fy }} is to date ({{ f.to }}). {% endfor %}</p>
+    {% for f in pf.fy_all if f.current %}
+    <h4 class="fy-sub">{{ f.fy }} to date by project</h4>
+    <table class="tbl fyt fyproj">
+      <thead><tr><th>Project</th><th>Received</th><th>Paid</th><th>Invoiced</th><th>Costs billed</th></tr></thead>
+      <tbody>{% for r in f.projects|sort(attribute='invoiced', reverse=True) %}<tr class="{{ 'sub' if r.status == 'Complete' }}"><td>{% if r.status != 'Complete' %}<a href="/p/{{ r.code }}">{{ r.code }}</a>{% else %}{{ r.code }}{% endif %} <small>{{ r.name }}{{ ' · complete' if r.status == 'Complete' }}</small></td>
+        <td class="num">{{ r.received|money }}</td><td class="num">{{ r.paid|money }}</td><td class="num">{{ r.invoiced|money }}</td><td class="num">{{ r.billed|money }}</td></tr>{% endfor %}</tbody>
+    </table>
+    {% endfor %}
     {% else %}<p class="empty">No transactions yet.</p>{% endif %}
     </div>
   </section>
@@ -149,4 +157,4 @@
 
 {% call drawer('d-chart', 'How to read the cash chart', 'All live projects', size='mid') %}{{ chart_help('Here the FY buttons include completed projects, so a past year shows everything that moved in it; “All” shows live projects only.') }}{% endcall %}
 {% endblock %}
-{% block scripts %}<script>window.CURVE = {{ pf.curve|tojson }}; window.CURVE_FY = {{ pf.curve_fy|tojson }};</script><script src="/static/chart.js?v=2610d"></script>{% endblock %}
+{% block scripts %}<script>window.CURVE = {{ pf.curve|tojson }}; window.CURVE_FY = {{ pf.curve_fy|tojson }};</script><script src="/static/chart.js?v=2610f"></script>{% endblock %}

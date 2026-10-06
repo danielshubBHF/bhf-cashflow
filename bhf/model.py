@@ -528,7 +528,8 @@ def fy_months(fy: str) -> list[str]:
     return [f"{MONTHS[m - 1]} {y - 1 if m >= 7 else y}" for m in (7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6)]
 
 
-def budget_view(b: dict | None, views: list, today: str, scheduled: dict | None = None) -> dict | None:
+def budget_view(b: dict | None, views: list, today: str, scheduled: dict | None = None,
+                formula_by_month: dict | None = None) -> dict | None:
     """Budget vs actual for the year, and how much of the rest is already won.
 
     actual        = Systems Sales revenue recognised in the P&L (NetSuite posting periods)
@@ -541,7 +542,8 @@ def budget_view(b: dict | None, views: list, today: str, scheduled: dict | None 
     cur = f"{MONTHS[int(today[5:7]) - 1]} {today[:4]}"
     ci = months.index(cur) if cur in months else len(months)
     rows = [{"month": m, "label": m[:3] + " " + m[-2:], "budget": round(b["budget"].get(m, 0.0), 2),
-             "actual": round(b["actual"].get(m, 0.0), 2), "closed": i < ci, "current": i == ci} for i, m in enumerate(months)]
+             "actual": round(b["actual"].get(m, 0.0), 2), "closed": i < ci, "current": i == ci,
+             "formula": round((formula_by_month or {}).get(m, 0.0), 2)} for i, m in enumerate(months)]
     closed = [r for r in rows if r["closed"]]
     now = next((r for r in rows if r["current"]), None)
     t = {"budget_year": round(sum(r["budget"] for r in rows), 2),
