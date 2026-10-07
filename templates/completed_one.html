@@ -61,7 +61,7 @@
   <div class="cbody"><table class="tbl">
     <thead><tr><th>Document</th><th>Customer</th><th>Customer PO</th><th>Date</th><th>Amount</th><th>Paid</th></tr></thead>
     <tbody>{% for t in x.invoices %}<tr><td>{{ t['Type'] }} {{ t['Doc #'] }}</td><td>{{ t['Party'] }}</td><td>{{ t['PO / Order #'] or '' }}</td><td>{{ t['Date']|mdate }}</td>
-      <td class="num">{{ t['Amount']|money }}</td><td>{% if t['Paid Date'] %}{{ t['Paid Date']|mdate }}{% else %}<span class="neg">not paid</span>{% endif %}</td></tr>{% endfor %}</tbody>
+      <td class="num">{{ t['Amount']|money }}</td><td>{% if t['Paid Date'] %}{{ t['Paid Date']|mdate }}{% elif t['Part Paid'] %}<span class="neg">{{ t['Part Paid']|money }} paid {{ t['Part Paid Date']|mdate }}, {{ (t['Amount'] - t['Part Paid'])|money }} owed</span>{% else %}<span class="neg">not paid</span>{% endif %}</td></tr>{% endfor %}</tbody>
   </table></div>
 </details>
 
@@ -70,7 +70,7 @@
   <div class="cbody"><table class="tbl">
     <thead><tr><th>Document</th><th>Supplier</th><th>PO</th><th>Date</th><th>Amount</th><th>Paid</th></tr></thead>
     <tbody>{% for t in x.costs_docs %}<tr><td>{{ t['Type'] }} {{ t['Doc #'] }}</td><td>{{ t['Party'] }}</td><td>{{ t['PO / Order #'] or '' }}</td><td>{{ t['Date']|mdate }}</td>
-      <td class="num">{{ t['Amount']|money }}</td><td>{% if t['Paid Date'] %}{{ t['Paid Date']|mdate }}{% else %}not paid{% endif %}</td></tr>{% endfor %}</tbody>
+      <td class="num">{{ t['Amount']|money }}</td><td>{% if t['Paid Date'] %}{{ t['Paid Date']|mdate }}{% elif t['Part Paid'] %}{{ t['Part Paid']|money }} paid, {{ (t['Amount'] - t['Part Paid'])|money }} to pay{% else %}not paid{% endif %}</td></tr>{% endfor %}</tbody>
   </table></div>
 </details>
 

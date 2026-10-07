@@ -101,6 +101,9 @@ class FakeNS:
     def paid_dates(self, ids):
         return {}
 
+    def part_paid(self, ids):
+        return {}
+
     def pdf(self, txn_id, attached=False):
         FakeNS.calls.append(txn_id)
         if txn_id == 99:

@@ -86,6 +86,22 @@ class NetSuite:
                 out[doc] = d
         return out
 
+    def part_paid(self, ids: list[int]) -> dict[int, tuple[float, str]]:
+        """Open invoices / bills that are partly paid: {id: (share of the total paid, latest payment date)}."""
+        if not ids:
+            return {}
+        rows = self.query(f"""
+            SELECT t.id, t.foreigntotal AS total, t.foreignamountpaid AS paid,
+                   (SELECT MAX(p.trandate) FROM NextTransactionLink ntl JOIN transaction p ON p.id = ntl.nextdoc
+                    WHERE ntl.previousdoc = t.id) AS last
+            FROM transaction t WHERE t.id IN ({",".join(map(str, ids))})""")
+        out = {}
+        for r in rows:
+            total, paid = abs(float(r.get("total") or 0)), abs(float(r.get("paid") or 0))
+            if total and 0.005 < paid < total - 0.005:
+                out[int(r["id"])] = (paid / total, r.get("last"))
+        return out
+
     # ---- FY budget tracking: "Systems Sales" (accounts 4071-4079) budget vs recognised revenue, by period
     SYSTEMS = "BUILTIN.DF({col}) LIKE '407%'"
 

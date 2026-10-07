@@ -115,12 +115,17 @@ def low_point(curve: list[dict]) -> dict | None:
     return min(ahead, key=lambda c: c["position"]) if ahead else None
 
 
+def paid_so_far(t: dict) -> float:
+    """Amount received / paid on a document: all of it once paid, the part payment while it's still open."""
+    return num(t.get("Amount")) if t.get("Paid Date") else num(t.get("Part Paid"))
+
+
 def bucket(f: dict,linked: list[dict], schedule: list[dict], today: str) -> dict:
     orders = [t for t in linked if t.get("Type") in ORDER_TYPES]
     docs = [t for t in linked if t.get("Type") not in ORDER_TYPES]
     budget = num(f.get("Amount"))
     billed = sum(num(d["Amount"]) for d in docs)
-    paid = sum(num(d["Amount"]) for d in docs if d.get("Paid Date"))
+    paid = sum(paid_so_far(d) for d in docs)
     pos = {norm(o.get("PO / Order #")) for o in orders} | set(norm(x) for x in re.split(r"[,;\s]+", str(f.get("PO / Order #") or "")) if x)
     ms = sorted([s for s in schedule if norm(s.get("PO / Order #")) in pos], key=lambda s: (str(s.get("PO / Order #")), num(s.get("Seq"))))
 
@@ -463,8 +468,11 @@ def project_view(p: dict, forecasts: list, txns: list, schedule: list, today: st
         label = f"{ms.get('Milestone')}" if ms else f"{t.get('Type')} {t.get('Doc #')}"
         if t.get("Paid Date"):
             row(side, l, "paid", t["Paid Date"], num(t["Amount"]), label, t.get("Party"), t, done=True)
-        else:
-            row(side, l, "billed", t.get("Due Date") or today, num(t["Amount"]), label, t.get("Party"), t)
+        else:                                   # open: any part payment so far is done, the rest still to come
+            part = num(t.get("Part Paid"))
+            if part:
+                row(side, l, "paid", t.get("Part Paid Date") or t.get("Date"), part, f"{label} (part paid)", t.get("Party"), t, done=True)
+            row(side, l, "billed", t.get("Due Date") or today, num(t["Amount"]) - part, label, t.get("Party"), t)
     for l in lines:
         side = "in" if l["direction"] == "In" else "out"
         open_amt = l["open_commit"]
@@ -534,7 +542,9 @@ def project_view(p: dict, forecasts: list, txns: list, schedule: list, today: st
     for t in pt:
         if (t.get("Type") == "Invoice" and not t.get("Paid Date") and t.get("Due Date")
                 and str(t["Due Date"]) < today):
-            flag("overdue", f"Invoice {t.get('Doc #')} ${num(t.get('Amount')):,.0f} overdue since {t['Due Date']}", None, t.get("Doc #"))
+            owed, part = num(t.get("Amount")) - num(t.get("Part Paid")), num(t.get("Part Paid"))
+            flag("overdue", f"Invoice {t.get('Doc #')} ${owed:,.0f} overdue since {t['Due Date']}"
+                            + (f" (${part:,.0f} of ${num(t.get('Amount')):,.0f} received)" if part else ""), None, t.get("Doc #"))
     for kind, text, key in housekeeping(code, lines, pt, forecasts, txns, today):
         flag(kind, text, None, key)
 
@@ -787,8 +797,10 @@ def completed_view(v: dict, p: dict, txns: list) -> dict:
     ins = sorted([t for t in docs if t.get("Direction") == "In"], key=lambda t: str(t.get("Date") or ""))
     outs = sorted([t for t in docs if t.get("Direction") != "In"], key=lambda t: str(t.get("Date") or ""))
     # Credits (credit notes, bill credits) are settled by being applied, so they count as received / paid.
-    settled = lambda t: bool(t.get("Paid Date")) or num(t.get("Amount")) < 0
-    s = lambda rows, paid=None: round(sum(num(t.get("Amount")) for t in rows if paid is None or settled(t) == paid), 2)
+    def got(t):                               # received / paid so far; credits are settled by being applied
+        return num(t.get("Amount")) if t.get("Paid Date") or num(t.get("Amount")) < 0 else num(t.get("Part Paid"))
+    s = lambda rows, paid=None: round(sum(num(t.get("Amount")) if paid is None else got(t) if paid
+                                          else num(t.get("Amount")) - got(t) for t in rows), 2)
     invoiced, costs = s(ins), s(outs)
     labour = num(p.get("Internal Labour"))
     gm = round(invoiced - costs, 2)

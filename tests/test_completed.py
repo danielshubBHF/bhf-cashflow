@@ -49,3 +49,19 @@ def test_open_po_fully_billed_in_its_own_currency():
     y = model.po_billing({**po, "Currency Amount": "", "Amount": 1000}, [{"Amount": 400}])
     assert not y["fully_billed"] and y["unbilled"] == 600
     assert model.po_billing({"Amount": 4650.44}, [])["unbilled"] == 4650.44
+
+
+def test_part_paid_invoice_counts_what_was_received():
+    """Brick Lane INV021789: $94,920 ex GST, $84,920 of $104,412 (inc GST) received on 7 Aug 26."""
+    inv = {"Doc #": "INV021789", "Project": "BHF26001", "Type": "Invoice", "Direction": "In", "Amount": 94920.0,
+           "Date": "2026-05-04", "Due Date": "2026-06-03", "Part Paid": round(94920 * 84920 / 104412, 2),
+           "Part Paid Date": "2026-08-07", "Forecast": "Main contract", "PO / Order #": "PO-0007"}
+    p = {**PROJECTS[0], "Status": "Complete"}
+    pf = model.portfolio([p], FORECASTS, TXNS + [inv], SCHEDULE, TODAY)
+    x = model.completed_view(pf["complete"][0], p, TXNS + [inv])
+    base = model.completed_view(done()[0]["complete"][0], p, TXNS)
+    assert round(x["received"] - base["received"], 2) == inv["Part Paid"]
+    assert round(x["owed_to_us"] - base["owed_to_us"], 2) == round(94920 - inv["Part Paid"], 2)
+    v = model.project_view(PROJECTS[0], FORECASTS, TXNS + [inv], SCHEDULE, TODAY)
+    rows = [r for r in v["ledger"]["in"] if (r.get("doc") or {}).get("Doc #") == "INV021789"]
+    assert sorted((r["done"], r["amount"]) for r in rows) == [(False, round(94920 - inv["Part Paid"], 2)), (True, inv["Part Paid"])]

@@ -150,6 +150,8 @@ def run(dry: bool = False):
     forecasts, txns, sched = F.load(), T.load(), S.load()
     if not dry:
         T.ensure_column("Filed", "CHECKBOX", 60)
+        T.ensure_column("Part Paid", "TEXT_NUMBER", 90)       # AUD ex GST received / paid so far on an open document
+        T.ensure_column("Part Paid Date", "DATE", 90)
     by_ns = {str(t.get("NetSuite ID")): t for t in txns if t.get("NetSuite ID")}
     stamp = dt.datetime.now().strftime("%d/%m/%y %H:%M")
     t_upd, t_add, f_upd, s_add, s_upd, notes = [], [], {}, [], [], []
@@ -163,6 +165,7 @@ def run(dry: bool = False):
         docs.sort(key=lambda d: (d["type"] not in ORDER_TYPES, int(d["id"])))   # orders first
         follow_bills(docs)
         paid = ns.paid_dates([int(d["id"]) for d in docs if d["type"] not in ORDER_TYPES])
+        part = ns.part_paid([int(d["id"]) for d in docs if d["type"] in ("CustInvc", "VendBill") and not is_paid(d)])
         pf = [f for f in forecasts if f.get("Project") == code]
         ps = [s for s in sched if s.get("Project") == code]
         ordered = {}                   # PO value already linked to each line (for the supplier-variation rule)
@@ -202,6 +205,8 @@ def run(dry: bool = False):
                 "Status": (d.get("status") or "").split(" : ")[-1],
                 # Settled with no payment found (stock issues, card charges, applied credits): the document date.
                 "Paid Date": iso(paid.get(int(d["id"])) or d.get("trandate")) if is_paid(d) else None,
+                "Part Paid": round(amount(d) * part[int(d["id"])][0], 2) if int(d["id"]) in part else None,
+                "Part Paid Date": iso(part[int(d["id"])][1]) if int(d["id"]) in part else None,
                 "Forecast": fc, "NetSuite ID": str(d["id"]), "Synced": stamp,
             }
             if d["type"] == "PurchOrd" and fc and not existing:
