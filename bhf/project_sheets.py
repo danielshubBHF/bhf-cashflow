@@ -105,7 +105,11 @@ def layout(v: dict, as_at: str, problems: list | None = None) -> list[dict]:
         sec = {"cells": {"Item": title, "Done": round(sum(g["done"] for g in groups), 2),
                          "To come": round(sum(g["tocome"] for g in groups), 2),
                          "Note": "add a row under this heading for a new forecast line", "Was": json.dumps({"section": side})},
-               "fmt": fmt(True, 0, bg, money=True, size=3), "locked": True, "children": []}
+               "fmt": fmt(True, 0, bg, money=True, size=3), "locked": True,
+               "children": [{"cells": {"Item": f"➕ To add a {'customer payment line' if side == 'in' else 'cost'}: right-click this row › "
+                                               f"Insert Row Below, then fill Item and Forecast (required), Type (pick from the list), "
+                                               f"Party and Date (expected). Saved at the next sync, or Refresh in the app.", "Was": RO},
+                             "fmt": fmt(color=GREY_TXT, italic=True), "locked": True}]}
         for g in groups:
             l = g["line"]
             note = []
@@ -127,7 +131,7 @@ def layout(v: dict, as_at: str, problems: list | None = None) -> list[dict]:
             line = {"cells": {**edit, "Status": LINE_STATUS.get(l["status"], ""), "Done": g["done"], "To come": g["tocome"],
                               "Note": "; ".join(note),
                               "Was": RO if l.get("unassigned") else json.dumps({"id": l["id"], **{k: norm_cell(k, x) for k, x in edit.items()}})},
-                    "fmt": fmt(True, 0, bg2, money=True), "locked": bool(l.get("unassigned")), "children": []}
+                    "fmt": fmt(True, 0, bg2, money=True), "locked": bool(l.get("unassigned")), "collapse": True, "children": []}
             for r in g["rows"]:
                 doc = r.get("doc") or {}
                 ref, label = doc.get("Doc #") or "", r["label"]
@@ -199,6 +203,14 @@ class Sheets:
                 return s
         return None
 
+    def dropdowns(self, sheet_id: int):
+        """Type: a strict dropdown of the app's cost types (added to sheets made before it existed)."""
+        from .editor import COST_TYPES
+        for c in self.get(f"/sheets/{sheet_id}/columns").get("data", []):
+            if c["title"] == "Type" and (c["type"] != "PICKLIST" or c.get("options") != COST_TYPES):
+                requests.put(f"{API}/sheets/{sheet_id}/columns/{c['id']}", headers=self.h, timeout=30,
+                             json={"type": "PICKLIST", "options": COST_TYPES, "validation": True}).raise_for_status()
+
     def find_or_create(self, folder_id: int, name: str) -> int:
         hit = self.ours(folder_id)
         if hit:
@@ -209,16 +221,146 @@ class Sheets:
                 if t not in have:
                     requests.post(f"{API}/sheets/{hit['id']}/columns", headers=self.h, timeout=30,
                                   json=[{"title": t, "type": ty, "width": w, "index": i, "hidden": t in HIDDEN}]).raise_for_status()
+            self.dropdowns(hit["id"])
             return hit["id"]
         body = {"name": name, "columns": [{"title": t, "type": ty, "width": w, **({"primary": True} if p else {}),
                                            **({"hidden": True} if t in HIDDEN else {})} for t, ty, w, p in COLUMNS]}
         r = requests.post(f"{API}/folders/{folder_id}/sheets", headers=self.h, json=body, timeout=60)
         r.raise_for_status()
         log.info("created sheet %s", name)
+        self.dropdowns(r.json()["result"]["id"])
         return r.json()["result"]["id"]
 
 
-def write(sheet_id: int, rows: list[dict]):
+def keyed(rows: list[dict]) -> list[dict]:
+    """Give every row a stable key (kept in its hidden Was cell), so the next sync can update it in place:
+    head, sum:{item}, sec:in / sec:out, line:{forecast row id}, u:{side}:{item}, {line key}|{item}|{ref}|{status}, foot."""
+    def setk(r, k):
+        was = json.loads(r["cells"].get("Was") or "{}")
+        was["k"] = k
+        r["cells"]["Was"] = json.dumps(was)
+        return k
+
+    for i, top in enumerate(rows):
+        was = json.loads(top["cells"].get("Was") or "{}")
+        tk = setk(top, f"sec:{was['section']}" if "section" in was else ("head" if i == 0 else "foot"))
+        seen = {}
+        for c in top.get("children", []):
+            cw = json.loads(c["cells"].get("Was") or "{}")
+            if tk == "head":
+                ck = f"sum:{c['cells'].get('Item')}"
+            elif "id" in cw:
+                ck = f"line:{cw['id'] if cw['id'] is not None else c['cells'].get('Item')}"
+            else:
+                ck = f"u:{tk}:{c['cells'].get('Item')}"
+            setk(c, ck)
+            for g in c.get("children", []):
+                base = f"{ck}|{g['cells'].get('Item')}|{g['cells'].get('Ref') or ''}|{g['cells'].get('Status')}"
+                seen[base] = seen.get(base, 0) + 1
+                setk(g, base if seen[base] == 1 else f"{base}#{seen[base]}")
+    return rows
+
+
+def read_sheet(sheet_id: int, h: dict) -> tuple[dict, list[dict]]:
+    """({column title: id}, rows in sheet order as {id, parent, cells{title: value}, format, k})."""
+    res = requests.get(f"{API}/sheets/{sheet_id}", headers=h, params={"include": "format"}, timeout=90)
+    res.raise_for_status()
+    sh = res.json()
+    col = {c["title"]: c["id"] for c in sh["columns"]}
+    title = {v: k for k, v in col.items()}
+    out = []
+    for r in sh.get("rows", []):
+        cells = {title[c["columnId"]]: c.get("value") for c in r["cells"]}
+        try:
+            k = (json.loads(cells.get(MARK) or "{}") or {}).get("k")
+        except (ValueError, AttributeError):
+            k = None
+        out.append({"id": r["id"], "parent": r.get("parentId"), "cells": cells, "format": r.get("format") or "", "k": k})
+    return col, out
+
+
+def same_cell(a, b) -> bool:
+    if a in (None, "", False) and b in (None, "", False):
+        return True
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool):
+        return abs(a - b) < 0.005
+    return str(a) == str(b)
+
+
+def write(sheet_id: int, rows: list[dict], keep_unkeyed: bool = False):
+    """Bring the sheet in line with `rows`, updating rows in place (so comments, attachments and cell history
+    on a row survive): changed rows are updated, missing ones added next to their neighbours, gone ones deleted.
+    Rows a PM added that haven't been turned into forecast lines yet are kept when keep_unkeyed (an edit failed)."""
+    rows = keyed(rows)
+    h = {"Authorization": f"Bearer {os.environ['SMARTSHEET_TOKEN']}"}
+    col, have = read_sheet(sheet_id, h)
+    if not any(r["k"] for r in have):
+        return rewrite(sheet_id, rows)                # first time (or an old-style sheet): build from scratch
+    k_of = {r["id"]: r["k"] for r in have}
+    by_k = {r["k"]: r for r in have if r["k"]}
+
+    def cells_for(r, update=False):
+        out = []
+        for title, cid in col.items():
+            val = r["cells"].get(title)
+            if val in (None, "") and not update:
+                continue
+            c = {"columnId": cid, "value": (round(val, 2) if isinstance(val, float) else val)}
+            if val in (None, ""):
+                c["value"] = False if title == "Closed" else ""
+            if title in MONEY_COLS:
+                c["format"] = r["fmt"]
+            out.append(c)
+        return out
+
+    wanted_rows, plan = set(), []                    # plan: (row, key, parent key, previous sibling key)
+
+    def walk(rs, parent_k):
+        prev = None
+        for r in rs:
+            k = json.loads(r["cells"]["Was"])["k"]
+            plan.append((r, k, parent_k, prev))
+            prev = k
+            walk(r.get("children", []), k)
+
+    walk(rows, None)
+    updates, adds = [], []
+    for r, k, pk, prev in plan:
+        e = by_k.get(k)
+        if e and k_of.get(e["parent"]) == pk:
+            wanted_rows.add(e["id"])
+            if (any(not same_cell(e["cells"].get(t), r["cells"].get(t)) for t in col)
+                    or e["format"].strip(",") != plain(r["fmt"]).strip(",")):
+                updates.append({"id": e["id"], "format": plain(r["fmt"]), "cells": cells_for(r, update=True)})
+        else:
+            adds.append((r, k, pk, prev))
+    gone = [e["id"] for e in have if e["id"] not in wanted_rows and (e["k"] or not keep_unkeyed)]
+    # children of a deleted row go with it; don't delete twice
+    gone_set = set(gone)
+    gone = [i for i in gone if not any(e["id"] == i and e["parent"] in gone_set for e in have)]
+    for i in range(0, len(gone), 300):
+        requests.delete(f"{API}/sheets/{sheet_id}/rows", headers=h, timeout=60,
+                        params={"ids": ",".join(map(str, gone[i:i + 300])), "ignoreRowsNotFound": "true"}).raise_for_status()
+    for i in range(0, len(updates), 200):
+        requests.put(f"{API}/sheets/{sheet_id}/rows", headers=h, json=updates[i:i + 200], timeout=60).raise_for_status()
+    id_of = {e["k"]: e["id"] for e in have if e["id"] in wanted_rows}
+    for r, k, pk, prev in adds:                      # in sheet order, each placed after its previous sibling
+        if prev and prev in id_of:
+            where = {"siblingId": id_of[prev]}
+        elif pk and pk in id_of:
+            where = {"parentId": id_of[pk], "toTop": True}
+        else:
+            where = {"toTop": True}
+        res = requests.post(f"{API}/sheets/{sheet_id}/rows", headers=h, timeout=60,
+                            json=[{**where, "format": plain(r["fmt"]), "cells": cells_for(r),
+                                   **({"locked": True} if r.get("locked") else {}),
+                                   **({"expanded": False} if r.get("collapse") and r.get("children") else {})}])
+        res.raise_for_status()
+        id_of[k] = res.json()["result"][0]["id"]
+    log.info("sheet %s: %d updated, %d added, %d removed", sheet_id, len(updates), len(adds), len(gone))
+
+
+def rewrite(sheet_id: int, rows: list[dict]):
     """Replace everything on the sheet with `rows` (sections, then their children, then grandchildren)."""
     t = Table(sheet_id)
     old = t.load()
@@ -239,6 +381,7 @@ def write(sheet_id: int, rows: list[dict]):
     def add(batch, parent=None):
         body = [{"toBottom": True, **({"parentId": parent} if parent else {}), "format": plain(r["fmt"]), "cells": cells(r),
                  **({"locked": True} if r.get("locked") else {})} for r in batch]
+        # (collapsing happens after the children exist: see rewrite)
         ids = []
         for i in range(0, len(body), 200):
             res = requests.post(f"{API}/sheets/{sheet_id}/rows", headers=t.h, json=body[i:i + 200], timeout=60)
@@ -246,7 +389,7 @@ def write(sheet_id: int, rows: list[dict]):
             ids += [x["id"] for x in res.json()["result"]]
         return ids
 
-    level = [(None, rows)]
+    level, fold = [(None, rows)], []
     while level:
         nxt = []
         for parent, batch in level:
@@ -254,7 +397,11 @@ def write(sheet_id: int, rows: list[dict]):
                 for rid, r in zip(add(batch, parent), batch):
                     if r.get("children"):
                         nxt.append((rid, r["children"]))
+                        if r.get("collapse"):
+                            fold.append({"id": rid, "expanded": False})
         level = nxt
+    for i in range(0, len(fold), 200):
+        requests.put(f"{API}/sheets/{sheet_id}/rows", headers=t.h, json=fold[i:i + 200], timeout=60).raise_for_status()
 
 
 def wanted(p: dict) -> bool:
@@ -312,7 +459,7 @@ def publish(only: str | None = None, dry: bool = False, problems: dict | None = 
             n = sum(1 + len(c["children"]) + sum(len(g.get("children", [])) for g in c["children"]) for c in rows)
             log.info("%s: would write %d rows to '%s' in folder %s", code, n, name, folder["name"])
         else:
-            write(ss.find_or_create(folder["id"], name), rows)
+            write(ss.find_or_create(folder["id"], name), rows, keep_unkeyed=bool(problems.get(code)))
             log.info("%s: wrote '%s'", code, name)
         done.append(code)
     return done
@@ -384,6 +531,8 @@ def pull(only: str | None = None, dry: bool = False) -> dict:
                 problems.setdefault(code, []).append(err)
         for values in new:
             values, err = clean(values)
+            if not err and values.get("Amount") in (None, ""):
+                err = f"new line “{values.get('Item')}” needs a Forecast amount"
             values.setdefault("Cost Type", None)
             values["Cost Type"] = values.get("Cost Type") or ("Customer Milestone" if values.get("Direction") == "In" else "Other")
             if not err and not dry:

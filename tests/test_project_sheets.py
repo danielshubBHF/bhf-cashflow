@@ -18,9 +18,11 @@ def test_layout_sections_add_up_to_the_app():
     assert summary["Cash now (received − paid)"]["Done"] == q["now"]
     assert summary["Final position (cash now + to receive − to pay)"]["To come"] == q["final"]
     for sec, side in ((r[1], "in"), (r[2], "out")):
-        assert round(sum(l["cells"]["Done"] for l in sec["children"]), 2) == round(sec["cells"]["Done"], 2) == q[f"{side}_done"]
+        lines = [l for l in sec["children"] if "Done" in l["cells"]]                # skip the "how to add" row
+        assert sec["children"][0]["cells"]["Item"].startswith("➕ To add")
+        assert round(sum(l["cells"]["Done"] for l in lines), 2) == round(sec["cells"]["Done"], 2) == q[f"{side}_done"]
         assert round(sec["cells"]["To come"], 2) == q[f"{side}_tocome"]
-        for line in sec["children"]:                       # each line's payments add up to the line
+        for line in lines:                                 # each line's payments add up to the line
             got = sum((p["cells"]["Done"] or 0) + (p["cells"]["To come"] or 0) for p in line["children"])
             assert abs(got - line["cells"]["Done"] - line["cells"]["To come"]) < 0.02
 
@@ -77,3 +79,15 @@ def test_clean_checks_like_the_form():
     assert ps.clean({"Cost Type": "Snacks"})[1]
     assert ps.clean({"Item": ""})[1]
     assert ps.clean({"PO / Order #": "PO1; PO2"})[0]["PO / Order #"] == "PO1, PO2"
+
+
+def test_every_row_gets_a_unique_key():
+    import json
+    _, r = rows()
+    keys = []
+    def walk(rs):
+        for x in rs:
+            keys.append(json.loads(x["cells"]["Was"])["k"])
+            walk(x.get("children", []))
+    walk(ps.keyed(r))
+    assert len(keys) == len(set(keys)) and keys[0] == "head" and "sec:out" in keys and keys[-1] == "foot"
