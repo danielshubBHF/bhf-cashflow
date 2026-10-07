@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% from "_macros.html" import pipe, legend, reconcile, cash_card, fy_table, fy_compare, drawer, explain, basis, stage_strip, stage_cells, stage_heads, chart_help, position_strip, line_ledger, line_panel, hero %}{% from "_editor.html" import forecast_editor %}{% from "_simple.html" import fy_recon, incoming_table, outgoing_table, pl_card %}
+{% extends "base.html" %}{% from "_macros.html" import pipe, legend, reconcile, cash_card, fy_table, fy_compare, drawer, explain, basis, stage_strip, stage_cells, stage_heads, chart_help, position_strip, line_ledger, line_panel %}{% from "_editor.html" import forecast_editor %}{% from "_simple.html" import fy_recon, incoming_table, outgoing_table, pl_card %}
 {% block title %}{{ v.code }} {{ v.name }} · Project Cashflow{% endblock %}
 {% block main %}
 {% set c = v.cost %}{% set p = v.position %}
@@ -9,7 +9,6 @@
   <div class="acts">
     <button type="button" class="btn" data-open="d-forecast">Forecast &amp; payments</button>
   </div>
-  {{ hero(hero_line, p, 'Cash position', 'd-in', 'd-out', 'd-fy') }}
   <span class="pb-brk"></span>
   <nav class="sectabs" role="tablist" aria-label="Sections" data-default="cashflow">
     <button type="button" role="tab" data-tab="cashflow" aria-selected="true" class="on">Cashflow</button>
@@ -28,9 +27,7 @@
   {% if bp %}· {{ bv.fy }} recognised <b>{{ bp.fy|money }}</b>, still to recognise <b>{{ bp.remaining|money }}</b>{% endif %}
   · <button type="button" class="lk" data-open="d-margin">Gross margin <b class="{{ 'neg' if v.gm < 0 }}">{{ v.gm|money }}</b> {{ v.gm_pct|pct }} → net <b>{{ v.nm|money }}</b> after BHF labour</button>
 </p>
-<details class="fysplit"><summary>Cash before and during {{ v.fy_now }}</summary>
 {{ fy_recon(p, v.fy_docs.get(v.fy_now, {'invoiced': 0, 'billed': 0}), v.fy_now, 'd-in', 'd-out', 'd-fy') }}
-</details>
 <div class="ctables">
   {{ incoming_table(v.ledger_lines['in'], p, v.fy_now) }}
   {{ outgoing_table(v.ledger_lines.out, p, v.fy_now) }}

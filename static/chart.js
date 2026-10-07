@@ -9,8 +9,8 @@
   const el = document.querySelector("canvas.cashchart");
   if (!el || !window.CURVE || !window.Chart) return;
   const ALL = window.CURVE, FYS = window.CURVE_FY || window.CURVE, card = el.closest(".card");
-  const K = { in: "#1F7A55", inL: "rgba(31,122,85,.30)", out: "#B9473A", outL: "rgba(185,71,58,.30)",
-              line: "#0E2A47", grid: "#eef2f6", tick: "#6b7884", head: "'Archivo', system-ui, 'Segoe UI', sans-serif" };
+  const K = { in: "#128a55", inL: "rgba(18,138,85,.32)", out: "#d05541", outL: "rgba(208,85,65,.32)",
+              line: "#0E2A47", grid: "#eef2f6", tick: "#6b7884", head: "'Space Grotesk', 'Segoe UI', sans-serif" };
   const full = n => (n < -0.5 ? "−$" : "$") + Math.abs(Math.round(n)).toLocaleString("en-AU");
   const short = n => { const a = Math.abs(n), s = n < 0 ? "−" : "";
     return a >= 1e6 ? `${s}$${(a / 1e6).toFixed(1)}M` : a >= 1e3 ? `${s}$${Math.round(a / 1e3)}k` : `${s}$${Math.round(a)}`; };
