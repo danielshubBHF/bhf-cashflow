@@ -304,7 +304,8 @@ def publish(only: str | None = None, dry: bool = False, problems: dict | None = 
         rows = layout(v, as_at, problems.get(code))
         folder = ss.project_folder(code)
         if not folder:
-            log.warning("%s: no folder under 2. Contracted starting with the code; skipped", code)
+            if p.get("Status") != "Complete":                 # finished jobs filed under Completed have no sheet
+                log.warning("%s: no folder under 2. Contracted starting with the code; skipped", code)
             continue
         name = sheet_name(code, p.get("Name") or "")
         if dry:

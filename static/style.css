@@ -871,3 +871,24 @@ html.js .board.scroll{height:auto;min-height:100vh}
 .board.scroll .card>.cap .more{margin-left:auto}
 .more-sup{margin-top:6px} .more-sup>summary{cursor:pointer;color:var(--muted);font-size:12.5px;padding:4px 0}
 .more-sup table{margin-top:4px}
+
+/* ---- phones: nothing wider than the screen; wide tables scroll sideways inside their card */
+@media (max-width:640px){
+  .board{padding:8px 10px 12px;gap:10px}
+  .ttl{min-width:0;flex:1 1 200px} .ttl .sub{white-space:normal;font-size:12px}
+  .sectabs{max-width:100%;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none} .sectabs button{flex:none}
+  .bud-line{grid-template-columns:1fr 1fr!important} .bud-line b{font-size:21px!important;letter-spacing:-.5px}
+  .bud-tables,.ctables,.cgrid,.odash,.pdash,.dash{grid-template-columns:minmax(0,1fr)!important}
+  .cbody,.ct-scroll,.bud-right,.card{min-width:0;max-width:100%}
+  .cbody,.ct-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .headline{font-size:13.5px}
+  .ckpis{grid-template-columns:1fr 1fr} .ckpi b{font-size:20px}
+  .pagebar h2{font-size:20px}
+  .recon-strip,.plc{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table.rs{font-size:12.5px} table.rs td,table.rs th{padding:5px 6px}
+  table.rs tr>:nth-child(2),table.rs tr>:nth-child(3){display:none}   /* phone: total to date, to come, final */
+  table.rs{width:100%} table.rs tr>:first-child{white-space:normal;padding-left:2px} table.rs tr>:first-child small{display:block}
+  .recon-strip{padding-left:8px;padding-right:8px}
+  .pl-form{flex-wrap:wrap;max-width:100%} .pl-set{min-width:0;max-width:100%}
+  .pane{overflow-x:hidden}
+}
