@@ -57,3 +57,38 @@ def test_bill_credit_follows_its_bill_to_the_po():
 
 if __name__ == "__main__":
     test_bill_credit_follows_its_bill_to_the_po(); print("PASS bill credit")
+
+
+# ---------------------------------------------------------------- variation lines added automatically
+def test_customer_invoice_with_new_po_becomes_a_variation_line():
+    from bhf.sync import auto_variation
+    pf = [{"Item": "Main contract", "Direction": "In", "Party": "Stacked Farm", "Amount": 1564700, "PO / Order #": "PO-0007"}]
+    inv = {"type": "CustInvc", "tranid": "INV023001", "trandate": "12/10/2026", "aud": "-48000", "party": "BHF26001 Stacked Farm"}
+    line = auto_variation(pf, inv, "PO-0019", {})
+    assert line["Direction"] == "In" and line["Cost Type"] == "Variation" and line["Amount"] == 48000
+    assert line["PO / Order #"] == "PO-0019" and line["Party"] == "Stacked Farm" and line["Notes"].startswith("Auto-added")
+    assert auto_variation(pf, inv, "PO-0007", {}) is None                       # the contract's own PO
+    assert auto_variation(pf, inv, "", {}) is None                              # no customer PO: can't tell
+    assert auto_variation([{**pf[0], "PO / Order #": ""}], inv, "PO-0019", {}) is None   # contract PO not known yet
+
+
+def test_supplier_po_becomes_a_variation_only_when_its_line_is_fully_ordered():
+    from bhf.sync import auto_variation
+    pf = [{"Item": "Welkin - system supply", "Direction": "Out", "Party": "Welkin", "Amount": 170000, "PO / Order #": "PO005862"}]
+    po = {"type": "PurchOrd", "tranid": "PO006400", "trandate": "12/10/2026", "aud": "9000", "party": "Welkin"}
+    assert auto_variation(pf, po, "PO006400", {"Welkin - system supply": 120000}) is None     # still forecast to order
+    line = auto_variation(pf, po, "PO006400", {"Welkin - system supply": 170000})
+    assert line["Item"] == "Welkin - variation PO006400" and line["Direction"] == "Out" and line["Amount"] == 9000
+    other = {**po, "party": "RS Online"}
+    assert auto_variation(pf, other, "PO006401", {"Welkin - system supply": 170000}) is None  # no line: stays Unlinked
+
+
+def test_auto_added_line_is_flagged_until_acknowledged():
+    from bhf.model import project_view
+    from tests.fixture_26001 import PROJECTS, FORECASTS, TXNS, SCHEDULE
+    extra = {"Item": "Variation - customer PO PO-0019", "Project": "BHF26001", "Direction": "In", "Cost Type": "Variation",
+             "Party": "Stacked Farm", "Amount": 48000, "PO / Order #": "PO-0019",
+             "Notes": "Auto-added by the sync from invoice INV023001 on 2026-10-12: check the name, value and payment milestones"}
+    v = project_view(PROJECTS[0], FORECASTS + [extra], TXNS, SCHEDULE, "2026-10-13")
+    [m] = [m for m in v["flag_meta"] if m["kind"] == "newvar"]
+    assert "Variation - customer PO PO-0019" in m["text"] and "$48,000" in m["text"]

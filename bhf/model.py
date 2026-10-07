@@ -514,6 +514,9 @@ def project_view(p: dict, forecasts: list, txns: list, schedule: list, today: st
                              f"(${num(t.get('Amount')):,.0f}) isn't linked to a forecast"
                              + (f" ({age} days)" if t.get("Type") == "Expense" and age else ""), t, t.get("NetSuite ID") or t.get("Doc #"))
             continue
+        if str(l["f"].get("Notes") or "").startswith("Auto-added by the sync"):
+            flag("newvar", f"New variation line added automatically: “{l['item']}” ${l['budget']:,.0f}. "
+                           f"{l['f']['Notes'].split(': ', 1)[-1].capitalize()}.", None, l["item"])
         if l["late"]:
             flag("late", f"{l['item']}: expected {l['date']} but no PO yet", None, l["item"])
         if l["overrun"] > 0.5 and l["direction"] == "Out":

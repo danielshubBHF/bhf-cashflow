@@ -109,6 +109,39 @@ def link_forecast(forecasts: list[dict], d: dict, order: str):
     return None, None
 
 
+AUTO_NOTE = "Auto-added by the sync"
+
+
+def auto_variation(pf: list[dict], d: dict, order: str, ordered: dict) -> dict | None:
+    """A new forecast line for a variation the PM hasn't set up yet, or None.
+      customer: a new invoice quoting a customer PO that no incoming line lists (once the contract PO is known)
+      supplier: a new PO from a supplier whose line(s) are already fully ordered (more scope, not the planned order)
+    `ordered` = {forecast item: PO value already linked to it}."""
+    amt = amount(d)
+    if not order or amt <= 0 or any(norm(order) in po_list(f) for f in pf):
+        return None
+    when = iso(d.get("trandate"))
+    if d["type"] == "CustInvc":
+        ins = [f for f in pf if f.get("Direction") == "In"]
+        if not any(po_list(f) for f in ins):           # contract PO not recorded yet: can't tell a variation apart
+            return None
+        party = next((f.get("Party") for f in ins if f.get("Party")), None) or d.get("party")
+        return {"Item": f"Variation - customer PO {order}", "Direction": "In", "Cost Type": "Variation", "Party": party,
+                "Amount": amt, "PO / Order #": order, "Expected Date": when,
+                "Notes": f"{AUTO_NOTE} from invoice {d.get('tranid')} on {when}: check the name, value and payment milestones"}
+    if d["type"] == "PurchOrd":
+        party = vkey(d.get("party") or "")
+        lines = [f for f in pf if f.get("Direction") == "Out" and f.get("Party") and not f.get("Closed")
+                 and party and (vkey(f["Party"]) in party or party in vkey(f["Party"]))]
+        if not lines or any(ordered.get(f["Item"], 0.0) < 0.98 * float(f.get("Amount") or 0) for f in lines):
+            return None                                 # no line for this supplier, or one still has forecast to order
+        return {"Item": f"{clean_vendor(d.get('party'))} - variation {order}", "Direction": "Out", "Cost Type": "Variation",
+                "Party": lines[0]["Party"], "Amount": amt, "PO / Order #": order, "Expected Date": when,
+                "Notes": f"{AUTO_NOTE} from {order} on {when}: {lines[0]['Item']} was already fully ordered. "
+                         f"Check it's a variation, its value and payment terms"}
+    return None
+
+
 def run(dry: bool = False):
     ns = NetSuite()
     P, F, T, S = (Table(config.SHEETS[k]) for k in ("projects", "forecasts", "transactions", "schedule"))
@@ -120,6 +153,7 @@ def run(dry: bool = False):
     by_ns = {str(t.get("NetSuite ID")): t for t in txns if t.get("NetSuite ID")}
     stamp = dt.datetime.now().strftime("%d/%m/%y %H:%M")
     t_upd, t_add, f_upd, s_add, s_upd, notes = [], [], {}, [], [], []
+    f_new, cv_upd = [], {}             # auto-added variation lines; Contract Value increases
     pdf_new, pdf_old = {}, []        # t_add index -> (name, bytes); (existing row id, name, bytes)
 
     for p in projects:
@@ -131,11 +165,25 @@ def run(dry: bool = False):
         paid = ns.paid_dates([int(d["id"]) for d in docs if d["type"] not in ORDER_TYPES])
         pf = [f for f in forecasts if f.get("Project") == code]
         ps = [s for s in sched if s.get("Project") == code]
+        ordered = {}                   # PO value already linked to each line (for the supplier-variation rule)
+        for t in txns:
+            if t.get("Project") == code and t.get("Type") == "PO" and t.get("Forecast"):
+                ordered[t["Forecast"]] = ordered.get(t["Forecast"], 0.0) + float(t.get("Amount") or 0)
 
         for d in docs:
             order = order_no(d)
             existing = by_ns.get(str(d["id"]))
             fc = existing.get("Forecast") if existing and existing.get("Forecast") else None
+            if not fc and not existing and (new_line := auto_variation(pf, d, order, ordered)):
+                new_line["Project"] = code
+                pf.append(new_line)
+                forecasts.append(new_line)
+                f_new.append(new_line)
+                fc = new_line["Item"]
+                notes.append(f"{code}: new variation line '{fc}' ${new_line['Amount']:,.2f}")
+                if new_line["Direction"] == "In" and p.get("Contract Value") not in (None, ""):
+                    p["Contract Value"] = round(float(p["Contract Value"]) + new_line["Amount"], 2)
+                    cv_upd[p["_id"]] = {"Contract Value": p["Contract Value"]}
             if not fc:
                 fc, append_to = link_forecast(pf, d, order)
                 if append_to is not None:
@@ -156,6 +204,8 @@ def run(dry: bool = False):
                 "Paid Date": iso(paid.get(int(d["id"])) or d.get("trandate")) if is_paid(d) else None,
                 "Forecast": fc, "NetSuite ID": str(d["id"]), "Synced": stamp,
             }
+            if d["type"] == "PurchOrd" and fc and not existing:
+                ordered[fc] = ordered.get(fc, 0.0) + amount(d)
             if existing:
                 if d["type"] in PDF_TYPES and wants_pdfs and not existing.get("PDF"):
                     if dry:
@@ -209,10 +259,15 @@ def run(dry: bool = False):
 
     for line in notes:
         log.info(line)
-    log.info("transactions: %d new, %d updated | forecasts linked: %d | milestones: %d new, %d billed",
-             len(t_add), len(t_upd), len(f_upd), len(s_add), len(s_upd))
+    log.info("transactions: %d new, %d updated | forecasts linked: %d | variation lines added: %d | milestones: %d new, %d billed",
+             len(t_add), len(t_upd), len(f_upd), len(f_new), len(s_add), len(s_upd))
     if dry:
         return notes
+    if f_new:                          # before the transactions, so their Forecast names exist
+        from .store import group_row
+        for f in f_new:
+            F.add([f], parent_id=group_row(forecasts, f["Project"]))
+        P.update(list(cv_upd.items()))
     T.update(t_upd)
     added = T.add(t_add)
     targets = [(added[i]["id"], name, data) for i, (name, data) in pdf_new.items()] + pdf_old
