@@ -2,7 +2,11 @@
 
 1. A "LIVE" cashflow sheet in each live project's Smartsheet folder (3. BHF Systems / 2. Contracted / {code} ...),
    laid out like the old hand-kept cashflow sheets: a summary, then money in and money out, each forecast line
-   with its payments underneath. Rebuilt on every sync, so nobody edits it; the old sheets are left alone.
+   with its payments underneath. Rebuilt on every sync; the old sheets are left alone.
+   Two-way: forecast lines can be edited on the sheet (item, party, type, PO #, expected date, forecast $, closed) and
+   new lines added under Money in / Money out. pull() writes those into the Forecasts sheet before the rebuild. A hidden
+   "Was" column holds what was written last time, so only cells changed in Smartsheet are applied (an edit made on the
+   website in between is never overwritten by the sheet's stale copy).
 2. Shading on the four database sheets: project header rows navy, money-in rows green, money-out rows red.
 
 Run:  python -m bhf.project_sheets              (both)
@@ -10,8 +14,10 @@ Run:  python -m bhf.project_sheets              (both)
 """
 import argparse
 import datetime as dt
+import json
 import logging
 import os
+import re
 
 import requests
 
@@ -46,17 +52,23 @@ def fmt(bold=False, color=0, bg=0, money=False, size=None, italic=False) -> str:
     return ",".join(f)
 
 
-COLUMNS = [("Item", "TEXT_NUMBER", 330, True), ("Party", "TEXT_NUMBER", 190, False), ("Status", "TEXT_NUMBER", 120, False),
-           ("Ref", "TEXT_NUMBER", 140, False), ("Date", "DATE", 100, False), ("Done", "TEXT_NUMBER", 115, False),
-           ("To come", "TEXT_NUMBER", 115, False), ("Note", "TEXT_NUMBER", 260, False)]
-MONEY_COLS = ("Done", "To come")
+COLUMNS = [("Item", "TEXT_NUMBER", 330, True), ("Party", "TEXT_NUMBER", 190, False), ("Type", "TEXT_NUMBER", 140, False),
+           ("Status", "TEXT_NUMBER", 120, False), ("Ref", "TEXT_NUMBER", 140, False), ("Date", "DATE", 100, False),
+           ("Forecast", "TEXT_NUMBER", 115, False), ("Done", "TEXT_NUMBER", 115, False), ("To come", "TEXT_NUMBER", 115, False),
+           ("Closed", "CHECKBOX", 60, False), ("Note", "TEXT_NUMBER", 260, False), ("Was", "TEXT_NUMBER", 60, False)]
+HIDDEN = {"Was"}
+MONEY_COLS = ("Forecast", "Done", "To come")
+# sheet column -> Forecasts column, for the cells a PM can edit on a forecast line
+EDITABLE = {"Item": "Item", "Party": "Party", "Type": "Cost Type", "Ref": "PO / Order #", "Date": "Expected Date",
+            "Forecast": "Amount", "Closed": "Closed"}
+RO = json.dumps({"ro": 1})
 KIND = {"in": {"paid": "Received", "billed": "Invoiced, not paid", "order": "To invoice", "forecast": "Forecast"},
         "out": {"paid": "Paid", "billed": "Billed, not paid", "order": "On order", "forecast": "Forecast"}}
 LINE_STATUS = dict(model.STATUS)
 
 
 # ---------------------------------------------------------------- what goes on the sheet
-def layout(v: dict, as_at: str) -> list[dict]:
+def layout(v: dict, as_at: str, problems: list | None = None) -> list[dict]:
     """Rows as {"cells": {...}, "fmt": ..., "children": [...]}: three sections, lines under them, payments under lines."""
     q, c = v["position"], v["cost"]
     summary = [
@@ -72,15 +84,17 @@ def layout(v: dict, as_at: str) -> list[dict]:
         ("BHF labour", None, v["labour"], ""),
         ("Net margin after labour", None, v["nm"], f"{v['nm_pct'] * 100:.1f}% of contract"),
     ]
-    rows = [{"cells": {"Item": f"Summary · {v['code']} {v['name']}", "Note": f"Data as at {as_at}"},
-             "fmt": fmt(True, WHITE, NAVY, size=3),
-             "children": [{"cells": {"Item": item, "Done": done, "To come": tocome, "Note": "" if note == "bold" else note},
-                           "fmt": fmt(bold=note == "bold", money=True)} for item, done, tocome, note in summary]}]
+    head = f"Data as at {as_at}" + (f" · couldn't apply: {'; '.join(problems)}" if problems else "")
+    rows = [{"cells": {"Item": f"Summary · {v['code']} {v['name']}", "Note": head, "Was": RO},
+             "fmt": fmt(True, WHITE, NAVY, size=3), "locked": True,
+             "children": [{"cells": {"Item": item, "Done": done, "To come": tocome, "Note": "" if note == "bold" else note, "Was": RO},
+                           "fmt": fmt(bold=note == "bold", money=True), "locked": True} for item, done, tocome, note in summary]}]
     for side, title, bg, bg2 in (("in", "Money in · customer", GREEN_BG2, GREEN_BG), ("out", "Money out · costs", RED_BG2, RED_BG)):
         groups = v["ledger_lines"][side]
         sec = {"cells": {"Item": title, "Done": round(sum(g["done"] for g in groups), 2),
-                         "To come": round(sum(g["tocome"] for g in groups), 2)},
-               "fmt": fmt(True, 0, bg, money=True, size=3), "children": []}
+                         "To come": round(sum(g["tocome"] for g in groups), 2),
+                         "Note": "add a row under this heading for a new forecast line", "Was": json.dumps({"section": side})},
+               "fmt": fmt(True, 0, bg, money=True, size=3), "locked": True, "children": []}
         for g in groups:
             l = g["line"]
             note = []
@@ -90,10 +104,19 @@ def layout(v: dict, as_at: str) -> list[dict]:
                 note.append("overdue")
             if l["direction"] == "Out" and l["overrun"] > 0.5:
                 note.append(f"{money(l['overrun'])} over forecast")
-            line = {"cells": {"Item": l["item"], "Party": l["party"], "Status": LINE_STATUS.get(l["status"], ""),
-                              "Ref": ", ".join(l["refs"]), "Date": g["next"], "Done": g["done"], "To come": g["tocome"],
-                              "Note": "; ".join(note)},
-                    "fmt": fmt(True, 0, bg2, money=True), "children": []}
+            f = l["f"]
+            edit = {"Item": l["item"], "Party": f.get("Party") or "", "Type": f.get("Cost Type") or "",
+                    "Ref": str(f.get("PO / Order #") or ""), "Date": str(f.get("Expected Date") or "")[:10] or None,
+                    "Forecast": model.num(f.get("Amount")) if f.get("Amount") not in (None, "") else None,
+                    "Closed": bool(f.get("Closed"))}
+            if l.get("unassigned"):
+                edit = {"Item": l["item"], "Party": l["party"], "Ref": ", ".join(l["refs"])}
+            if g["next"]:
+                note.append(f"next payment {g['next']}")
+            line = {"cells": {**edit, "Status": LINE_STATUS.get(l["status"], ""), "Done": g["done"], "To come": g["tocome"],
+                              "Note": "; ".join(note),
+                              "Was": RO if l.get("unassigned") else json.dumps({"id": l["id"], **{k: norm_cell(k, x) for k, x in edit.items()}})},
+                    "fmt": fmt(True, 0, bg2, money=True), "locked": bool(l.get("unassigned")), "children": []}
             for r in g["rows"]:
                 doc = r.get("doc") or {}
                 ref, label = doc.get("Doc #") or "", r["label"]
@@ -103,14 +126,33 @@ def layout(v: dict, as_at: str) -> list[dict]:
                     "Item": label, "Party": l["party"] if side == "in" else r["party"],   # invoices name the job, not the customer
                     "Status": KIND[side].get(r["kind"], r["kind"]), "Ref": ref, "Date": r["date"],
                     "Done": r["amount"] if r["done"] else None, "To come": None if r["done"] else r["amount"],
-                    "Note": "overdue" if r["overdue"] else ""},
-                    "fmt": fmt(color=RED_TXT if r["overdue"] else (GREY_TXT if r["done"] else 0), money=True)})
+                    "Note": "overdue" if r["overdue"] else "", "Was": RO},
+                    "fmt": fmt(color=RED_TXT if r["overdue"] else (GREY_TXT if r["done"] else 0), money=True), "locked": True})
             sec["children"].append(line)
         rows.append(sec)
-    rows.append({"cells": {"Item": "Built automatically by the cashflow sync (7am and 1pm weekdays) from NetSuite and the Cashflow "
-                                   "Database. Don't edit here: changes are overwritten. Edit forecasts in the cashflow app."},
-                 "fmt": fmt(color=GREY_TXT, italic=True), "children": []})
+    rows.append({"cells": {"Item": "Rebuilt by the cashflow sync (7am and 1pm weekdays, or Refresh in the app) from NetSuite and the "
+                                   "Cashflow Database. You can edit a forecast line's item, party, type, PO #, expected date, forecast $ "
+                                   "and Closed, or add a line under Money in / Money out: it's saved at the next sync. Payments come "
+                                   "from NetSuite and can't be edited here. To remove a line, tick Closed or delete it in the app.",
+                           "Was": RO},
+                 "fmt": fmt(color=GREY_TXT, italic=True), "locked": True, "children": []})
     return rows
+
+
+def norm_cell(col: str, x):
+    """A cell value in a comparable form (what the sheet holds vs what was written)."""
+    if col == "Closed":
+        return bool(x)
+    if col == "Forecast":
+        if x in (None, ""):
+            return None
+        try:
+            return round(float(re.sub(r"[^0-9.\-]", "", str(x))), 2)
+        except ValueError:
+            return str(x).strip()
+    if col == "Date":
+        return str(x)[:10] if x else None
+    return re.sub(r"\s+", " ", str(x or "")).strip()
 
 
 def plain(f: str) -> str:
@@ -145,9 +187,14 @@ class Sheets:
         if hit:
             if hit["name"] != name:
                 requests.put(f"{API}/sheets/{hit['id']}", headers=self.h, json={"name": name}, timeout=30).raise_for_status()
+            have = {c["title"] for c in self.get(f"/sheets/{hit['id']}/columns").get("data", [])}
+            for i, (t, ty, w, _) in enumerate(COLUMNS):
+                if t not in have:
+                    requests.post(f"{API}/sheets/{hit['id']}/columns", headers=self.h, timeout=30,
+                                  json=[{"title": t, "type": ty, "width": w, "index": i, "hidden": t in HIDDEN}]).raise_for_status()
             return hit["id"]
-        body = {"name": name, "columns": [{"title": t, "type": ty, "width": w, **({"primary": True} if p else {})}
-                                          for t, ty, w, p in COLUMNS]}
+        body = {"name": name, "columns": [{"title": t, "type": ty, "width": w, **({"primary": True} if p else {}),
+                                           **({"hidden": True} if t in HIDDEN else {})} for t, ty, w, p in COLUMNS]}
         r = requests.post(f"{API}/folders/{folder_id}/sheets", headers=self.h, json=body, timeout=60)
         r.raise_for_status()
         log.info("created sheet %s", name)
@@ -173,8 +220,8 @@ def write(sheet_id: int, rows: list[dict]):
         return out
 
     def add(batch, parent=None):
-        body = [{"toBottom": True, **({"parentId": parent} if parent else {}), "format": plain(r["fmt"]), "cells": cells(r)}
-                for r in batch]
+        body = [{"toBottom": True, **({"parentId": parent} if parent else {}), "format": plain(r["fmt"]), "cells": cells(r),
+                 **({"locked": True} if r.get("locked") else {})} for r in batch]
         ids = []
         for i in range(0, len(body), 200):
             res = requests.post(f"{API}/sheets/{sheet_id}/rows", headers=t.h, json=body[i:i + 200], timeout=60)
@@ -193,8 +240,9 @@ def write(sheet_id: int, rows: list[dict]):
         level = nxt
 
 
-def publish(only: str | None = None, dry: bool = False) -> list[str]:
+def publish(only: str | None = None, dry: bool = False, problems: dict | None = None) -> list[str]:
     """Write the LIVE cashflow sheet for every live project (or one)."""
+    problems = problems or {}
     P, F, T, S = (Table(config.SHEETS[k]).load() for k in ("projects", "forecasts", "transactions", "schedule"))
     today = dt.date.today().isoformat()
     as_at = dt.datetime.now().strftime("%d %b %Y %H:%M")
@@ -204,7 +252,7 @@ def publish(only: str | None = None, dry: bool = False) -> list[str]:
         if p.get("Status") in model.LIVE_OUT or (only and code != only):
             continue
         v = model.project_view(p, F, T, S, today)
-        rows = layout(v, as_at)
+        rows = layout(v, as_at, problems.get(code))
         folder = ss.project_folder(code)
         if not folder:
             log.warning("%s: no folder under 2. Contracted starting with the code; skipped", code)
@@ -218,6 +266,83 @@ def publish(only: str | None = None, dry: bool = False) -> list[str]:
             log.info("%s: wrote '%s'", code, name)
         done.append(code)
     return done
+
+
+# ---------------------------------------------------------------- edits made on the LIVE sheets -> Forecasts
+def sheet_edits(rows: list[dict]) -> tuple[list, list]:
+    """From a LIVE sheet's rows (in sheet order): ([(forecast row id, {Forecasts column: value})], [new line values]).
+    Only cells that differ from what the sync last wrote count as edits."""
+    edits, new, side = [], [], None
+    for r in rows:
+        try:
+            was = json.loads(r.get("Was") or "null")
+        except ValueError:
+            was = None
+        if isinstance(was, dict) and "section" in was:
+            side = was["section"]
+            continue
+        if isinstance(was, dict) and "id" in was:
+            diff = {}
+            for col, fcol in EDITABLE.items():
+                now = norm_cell(col, r.get(col))
+                if now != was.get(col):
+                    diff[fcol] = now
+            if diff:
+                edits.append((was["id"], diff))
+            continue
+        if was is None and side and str(r.get("Item") or "").strip():
+            new.append({fcol: norm_cell(col, r.get(col)) for col, fcol in EDITABLE.items()}
+                       | {"Direction": "In" if side == "in" else "Out"})
+    return edits, new
+
+
+def clean(values: dict) -> tuple[dict, str | None]:
+    """Forecasts values from sheet cells, checked the way the app's form checks them."""
+    from .editor import COST_TYPES
+    out = dict(values)
+    if "Item" in out and not out["Item"]:
+        return {}, "a line needs a name"
+    if "Amount" in out and isinstance(out["Amount"], str):
+        return {}, f"forecast “{out['Amount']}” isn't a number"
+    if "Cost Type" in out and out["Cost Type"] and out["Cost Type"] not in COST_TYPES:
+        return {}, f"type “{out['Cost Type']}” isn't one of: {', '.join(COST_TYPES)}"
+    if out.get("PO / Order #"):
+        out["PO / Order #"] = ", ".join(x for x in re.split(r"[,;\s]+", out["PO / Order #"]) if x)
+    return {k: (None if v in ("",) else v) for k, v in out.items()}, None
+
+
+def pull(only: str | None = None, dry: bool = False) -> dict:
+    """Apply edits made on the LIVE sheets to the Forecasts sheet. Returns {code: [problems]} for the sheets' headers."""
+    from .store import Store
+    store, ss, problems = Store(), Sheets(), {}
+    projects = store.load(force=True)[0]
+    for p in projects:
+        code = p.get("Project")
+        if p.get("Status") in model.LIVE_OUT or (only and code != only):
+            continue
+        folder = ss.project_folder(code)
+        sheet = next((x for x in (ss.get(f"/folders/{folder['id']}").get("sheets", []) if folder else [])
+                      if x["name"].endswith(SUFFIX)), None)
+        if not sheet:
+            continue
+        edits, new = sheet_edits(Table(sheet["id"]).load())
+        for row_id, diff in edits:
+            values, err = clean(diff)
+            if not err and not dry:
+                err = store.save_forecast(code, row_id, values)
+            log.info("%s: line %s %s%s", code, row_id, values or diff, f"  [{err}]" if err else "")
+            if err:
+                problems.setdefault(code, []).append(err)
+        for values in new:
+            values, err = clean(values)
+            values.setdefault("Cost Type", None)
+            values["Cost Type"] = values.get("Cost Type") or ("Customer Milestone" if values.get("Direction") == "In" else "Other")
+            if not err and not dry:
+                err = store.save_forecast(code, None, values)
+            log.info("%s: new line %s%s", code, values.get("Item"), f"  [{err}]" if err else "")
+            if err:
+                problems.setdefault(code, []).append(err)
+    return problems
 
 
 # ---------------------------------------------------------------- shading on the database sheets
@@ -258,12 +383,20 @@ def style(dry: bool = False) -> int:
     return n
 
 
-def run(dry: bool = False, only: str | None = None):
-    for step in (lambda: style(dry), lambda: publish(only, dry)):
+def run(dry: bool = False, only: str | None = None, problems: dict | None = None):
+    for step in (lambda: style(dry), lambda: publish(only, dry, problems)):
         try:
             step()
         except Exception:                        # never fail the sync over a view
             log.exception("project sheets step failed")
+
+
+def safe_pull(dry: bool = False, only: str | None = None) -> dict:
+    try:
+        return pull(only, dry)
+    except Exception:
+        log.exception("reading edits from the LIVE sheets failed")
+        return {}
 
 
 if __name__ == "__main__":
@@ -273,7 +406,8 @@ if __name__ == "__main__":
     ap.add_argument("--no-style", action="store_true")
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     a = ap.parse_args()
+    found = safe_pull(a.dry_run, a.project)
     if a.no_style:
-        publish(a.project, a.dry_run)
+        publish(a.project, a.dry_run, found)
     else:
-        run(a.dry_run, a.project)
+        run(a.dry_run, a.project, found)

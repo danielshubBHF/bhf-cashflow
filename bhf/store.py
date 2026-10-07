@@ -109,9 +109,10 @@ class Store:
         row = next((f for f in pf if str(f.get("_id")) == str(row_id)), None) if row_id else None
         if row_id and row is None:
             return "That line has changed in Smartsheet since this page loaded. Refresh and try again."
-        name = values["Item"].lower()
-        if any(f is not row and str(f.get("Item") or "").strip().lower() == name for f in pf):
-            return f"{code} already has a line called “{values['Item']}”. Use a different name."
+        if "Item" in values:
+            name = str(values["Item"] or "").lower()
+            if any(f is not row and str(f.get("Item") or "").strip().lower() == name for f in pf):
+                return f"{code} already has a line called “{values['Item']}”. Use a different name."
         if row is None:
             self._add("forecasts", forecasts, {"Project": code, **values}, parent=group_row(forecasts, code))
             return None

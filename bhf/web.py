@@ -2,6 +2,7 @@
 import datetime as dt
 import logging
 import os
+import threading
 from pathlib import Path
 from urllib.parse import quote
 
@@ -306,6 +307,11 @@ def pdf(request: Request, netsuite_id: str):
 def refresh(request: Request):
     if (r := auth.require(request)):
         return r
+    if not store.demo:
+        # Edits made on the projects' LIVE Smartsheet sheets come in now; the sheets are rebuilt in the background.
+        from . import project_sheets
+        found = project_sheets.safe_pull()
+        threading.Thread(target=project_sheets.run, kwargs={"problems": found}, daemon=True).start()
     load(force=True)
     store.budget(force=True)
     return RedirectResponse(request.headers.get("referer", "/"))

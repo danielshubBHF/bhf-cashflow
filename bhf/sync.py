@@ -280,6 +280,7 @@ if __name__ == "__main__":
     if a.refetch_bills:
         refetch_bills(a.dry_run)
     else:
+        from . import project_sheets               # LIVE sheets in Smartsheet; never fail the sync
+        found = project_sheets.safe_pull(a.dry_run)   # edits made on the LIVE sheets first, so this sync uses them
         run(a.dry_run)
-        from . import project_sheets               # readable views in Smartsheet; never fails the sync
-        project_sheets.run(a.dry_run)
+        project_sheets.run(a.dry_run, problems=found)

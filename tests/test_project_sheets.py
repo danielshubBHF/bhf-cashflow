@@ -38,3 +38,42 @@ def test_shading_rules():
     assert ps.wanted_format("schedule", {"Direction": "Out"}) == ps.fmt(bg=ps.RED_BG)
     assert ps.wanted_format("projects", {"Status": "Complete"}) == ps.fmt(color=ps.GREY_TXT)
     assert ps.wanted_format("transactions", {}) is None
+
+
+# ---------------------------------------------------------------- two-way: edits on the LIVE sheet
+def as_sheet(rows):
+    """The layout as the sheet would read back: rows in order, blank cells missing (as Smartsheet returns them)."""
+    out = []
+    def walk(rs):
+        for r in rs:
+            out.append({k: (round(v, 2) if isinstance(v, float) else v) for k, v in r["cells"].items() if v not in (None, "")})
+            walk(r.get("children", []))
+    walk(rows)
+    return out
+
+
+def test_untouched_sheet_has_no_edits():
+    v, r = rows()
+    assert ps.sheet_edits(as_sheet(r)) == ([], [])
+
+
+def test_edits_and_new_lines_are_found():
+    v, r = rows()
+    sheet = as_sheet(r)
+    jar = next(x for x in sheet if x.get("Item") == "Jar testing")
+    jar["Forecast"], jar["Date"] = "$2,500", "2026-12-01"
+    i = next(n for n, x in enumerate(sheet) if str(x.get("Item", "")).startswith("Money out"))
+    sheet.insert(i + 1, {"Item": "Crane hire", "Party": "Boom Logistics", "Forecast": 4800, "Date": "2027-02-10"})
+    edits, new = ps.sheet_edits(sheet)
+    [(rid, diff)] = edits
+    line = next(l for l in v["forecast_lines"] if l["item"] == "Jar testing")
+    assert rid == line["id"] and diff == {"Amount": 2500.0, "Expected Date": "2026-12-01"}
+    [n] = new
+    assert n["Item"] == "Crane hire" and n["Direction"] == "Out" and n["Amount"] == 4800 and n["Party"] == "Boom Logistics"
+
+
+def test_clean_checks_like_the_form():
+    assert ps.clean({"Amount": "twelve"})[1]
+    assert ps.clean({"Cost Type": "Snacks"})[1]
+    assert ps.clean({"Item": ""})[1]
+    assert ps.clean({"PO / Order #": "PO1; PO2"})[0]["PO / Order #"] == "PO1, PO2"
