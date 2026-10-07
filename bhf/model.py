@@ -1002,3 +1002,35 @@ def completed_totals(rows: list) -> dict:
     t = {k: round(sum(r[k] for r in rows), 2) for k in ("invoiced", "received", "owed_to_us", "costs", "paid", "owed_by_us", "gm")}
     t["gm_pct"] = t["gm"] / t["invoiced"] if t["invoiced"] else 0.0
     return t
+
+
+# ---- the cash position line: the page's one bold element
+def hero(curve: list, today: str, width: int = 1000, height: int = 96) -> dict | None:
+    """The running cash balance as one wide line, from the start of this financial year to the last dated month:
+    solid up to this month, dashed after, with today, the end point and the lowest point ahead marked.
+    Coordinates are for an SVG viewBox of width x height."""
+    start = fy_start(today)[:7]
+    rows = [c for c in curve if c["month"] != "Undated" and c["month"] >= start]
+    if len(rows) < 2:
+        return None
+    vals = [c["position"] for c in rows]
+    lo, hi = min(vals), max(vals)
+    pad = (hi - lo) * 0.12 or abs(hi) * 0.1 or 1.0
+    lo, hi = lo - pad, hi + pad
+    span = (hi - lo) or 1.0
+    top, bot = 12, height - 14
+    xs = [round(i * width / (len(rows) - 1), 1) for i in range(len(rows))]
+    y = lambda v: round(bot - (v - lo) / span * (bot - top), 1)
+    pts = [(x, y(v)) for x, v in zip(xs, vals)]
+    cur = next((i for i, c in enumerate(rows) if c["is_current"]), None)
+    if cur is None:
+        cur = len(rows) - 1 if rows[-1]["month"] < today[:7] else 0
+    path = lambda ps: "M" + " L".join(f"{a},{b}" for a, b in ps)
+    ahead = list(range(cur, len(rows)))
+    li = min(ahead, key=lambda i: vals[i])
+    return {"w": width, "h": height, "past": path(pts[:cur + 1]), "future": path(pts[cur:]) if cur < len(pts) - 1 else "",
+            "zero": y(0.0) if lo < 0 < hi else None, "today": pts[cur], "end": pts[-1],
+            "low": {"x": pts[li][0], "y": pts[li][1], "value": vals[li], "label": rows[li]["label"]}
+                   if li not in (cur, len(rows) - 1) and vals[li] < min(vals[cur], vals[-1]) - 0.5 else None,
+            "first": rows[0]["label"], "last": rows[-1]["label"], "now_label": rows[cur]["label"],
+            "end_value": vals[-1], "months": [(x, c["label"][:3]) for x, c in zip(xs, rows)]}

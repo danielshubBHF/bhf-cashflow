@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% from "_macros.html" import pipe, legend, cash_card, drawer, explain, basis, stage_cells, stage_heads, chart_help, position_strip, stage_strip %}
+{% extends "base.html" %}{% from "_macros.html" import pipe, legend, cash_card, drawer, explain, basis, stage_cells, stage_heads, chart_help, position_strip, stage_strip, hero %}
 {% from "_simple.html" import fy_recon, budget_card %}
 {% block main %}
 {% set t = pf.totals %}{% set p = t.position %}{% set fyb = bv.fy if bv else pf.fy_now %}
@@ -7,6 +7,7 @@
   <span class="by">{{ pf.views|length }} live project{{ '' if pf.views|length == 1 else 's' }}{% if pf.complete %} · <a href="/completed">{{ pf.complete|length }} completed</a>{% endif %}</span>
   {% if t.unfiled %}<span class="pill warn">{{ t.unfiled }} PDF{{ '' if t.unfiled == 1 else 's' }} not yet filed</span>{% endif %}
   {% if t.flags %}<span class="pill warn">{{ t.flags }} item{{ '' if t.flags == 1 else 's' }} need attention</span>{% endif %}
+  {% if p %}{{ hero(hero_line, p, 'Cash position, all live projects', 'd-o-in', 'd-o-out', 'd-o-now') }}{% endif %}
   <span class="pb-brk"></span>
   <nav class="sectabs" role="tablist" aria-label="Sections" data-default="budget">
     <button type="button" role="tab" data-tab="budget" aria-selected="true" class="on">{{ fyb }} vs budget</button>

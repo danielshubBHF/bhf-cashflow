@@ -65,7 +65,7 @@ def pie(values) -> str:
 
 
 LOGO = (ROOT / "static" / "logo-datauri.txt").read_text(encoding="utf-8").strip()      # BHF logo, inlined once
-ASSET_V = "2610q"          # bump when static/*.css or *.js change, so browsers fetch the new file
+ASSET_V = "2610u"          # bump when static/*.css or *.js change, so browsers fetch the new file
 tpl.env.globals.update(asset_v=ASSET_V, fy_start=model.fy_start, norm=model.norm, cost_types=editor.COST_TYPES, pal=PAL, pie=pie, logo=LOGO,
                         today=lambda: dt.date.today().isoformat())
 app.include_router(auth.router)
@@ -148,6 +148,7 @@ def overview(request: Request):
         return r
     c = ctx(request, active="overview")
     c["pv"] = pipeline_view(c)
+    c["hero_line"] = model.hero(c["pf"]["curve"], dt.date.today().isoformat())
     c["err"] = request.query_params.get("err")
     return tpl.TemplateResponse(request, "overview.html", c)
 
@@ -196,6 +197,7 @@ def project(request: Request, code: str):
     projects, forecasts, *_ = load()
     c["v"] = v
     c["pl"] = c["pls"][code]
+    c["hero_line"] = model.hero(v["curve"], dt.date.today().isoformat())
     c["forecast_items"] = [f["Item"] for f in forecasts if f.get("Project") == code]
     c["err"] = request.query_params.get("err")
     return tpl.TemplateResponse(request, "project.html", c)

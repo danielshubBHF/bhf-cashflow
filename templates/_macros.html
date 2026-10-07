@@ -282,3 +282,40 @@
   </div>
 </div>
 {%- endmacro %}
+
+
+{# The cash position line: the page's one bold element. Figures above, the running balance below. #}
+{% macro hero(h, p, title, d_in='', d_out='', d_now='') -%}
+<section class="hero" aria-label="{{ title }}">
+  <div class="hero-figs">
+    <h2 class="hero-t">{{ title }}</h2>
+    <dl>
+      <div><dt>Received</dt><dd>{% if d_in %}<button type="button" class="lk" data-open="{{ d_in }}">{{ p.in_done|k }}</button>{% else %}{{ p.in_done|k }}{% endif %}</dd></div>
+      <div><dt>Paid</dt><dd>{% if d_out %}<button type="button" class="lk" data-open="{{ d_out }}">{{ p.out_done|k }}</button>{% else %}{{ p.out_done|k }}{% endif %}</dd></div>
+      <div class="now"><dt>Cash now</dt><dd class="{{ 'neg' if p.now < 0 }}">{% if d_now %}<button type="button" class="lk" data-open="{{ d_now }}">{{ p.now|k }}</button>{% else %}{{ p.now|k }}{% endif %}</dd></div>
+      <div><dt>Still to receive</dt><dd>{{ p.in_tocome|k }}{% if p.in_overdue >= 0.5 %}<small class="neg">{{ p.in_overdue|k }} overdue</small>{% endif %}</dd></div>
+      <div><dt>Still to pay</dt><dd>{{ p.out_tocome|k }}{% if p.out_overdue >= 0.5 %}<small class="neg">{{ p.out_overdue|k }} overdue</small>{% endif %}</dd></div>
+      <div class="final"><dt>Final position</dt><dd class="{{ 'neg' if p.final < 0 }}">{{ p.final|k }}</dd></div>
+    </dl>
+  </div>
+  {% if h %}
+  <figure class="hero-line">
+    <div class="hl-plot">
+      <svg viewBox="0 0 {{ h.w }} {{ h.h }}" preserveAspectRatio="none" role="img"
+           aria-label="Running cash balance from {{ h.first }} to {{ h.last }}: {{ p.now|money }} now, {{ h.end_value|money }} by {{ h.last }}{% if h.low %}, lowest {{ h.low.value|money }} in {{ h.low.label }}{% endif %}">
+        {% if h.zero is not none %}<line class="zero" x1="0" x2="{{ h.w }}" y1="{{ h.zero }}" y2="{{ h.zero }}"/>{% endif %}
+        <line class="today" x1="{{ h.today[0] }}" x2="{{ h.today[0] }}" y1="0" y2="{{ h.h }}"/>
+        <path class="past" d="{{ h.past }}"/>
+        {% if h.future %}<path class="future" d="{{ h.future }}"/>{% endif %}
+      </svg>
+      {# dots sit in HTML over the stretched SVG, so they stay round #}
+      <span class="dot now" style="left:{{ h.today[0] / h.w * 100 }}%;top:{{ h.today[1] / h.h * 100 }}%"></span>
+      <span class="dot end" style="left:100%;top:{{ h.end[1] / h.h * 100 }}%"></span>
+      {% if h.low %}<span class="dot low" style="left:{{ h.low.x / h.w * 100 }}%;top:{{ h.low.y / h.h * 100 }}%"></span>
+        <span class="low-l{{ ' flip' if h.low.x > h.w * 0.75 }}" style="left:{{ h.low.x / h.w * 100 }}%;top:{{ h.low.y / h.h * 100 }}%">Lowest ahead {{ h.low.value|k }}, {{ h.low.label }}</span>{% endif %}
+    </div>
+    <figcaption><span>{{ h.first }}</span><span class="tag-now" style="left:{{ h.today[0] / h.w * 100 }}%">Today</span><span>{{ h.last }}: {{ h.end_value|k }}</span></figcaption>
+  </figure>
+  {% endif %}
+</section>
+{%- endmacro %}
