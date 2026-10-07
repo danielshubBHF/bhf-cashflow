@@ -46,8 +46,10 @@ WHITE, NAVY, GREY_TXT, RED_TXT = 2, 39, 34, 35
 GREEN_BG, GREEN_BG2, RED_BG, RED_BG2, GREY_BG, BLUE_BG = 7, 14, 4, 11, 18, 8
 
 
-def fmt(bold=False, color=0, bg=0, money=False, size=None, italic=False) -> str:
+def fmt(bold=False, color=0, bg=0, money=False, size=None, italic=False, wrap=False) -> str:
     f = [""] * 17
+    if wrap:
+        f[15] = "1"
     if size is not None:
         f[1] = str(size)
     if bold:
@@ -97,7 +99,7 @@ def layout(v: dict, as_at: str, problems: list | None = None) -> list[dict]:
     ]
     head = f"Data as at {as_at}" + (f" · couldn't apply: {'; '.join(problems)}" if problems else "")
     rows = [{"cells": {"Item": f"Summary · {v['code']} {v['name']}", "Note": head, "Was": RO},
-             "fmt": fmt(True, WHITE, NAVY, size=3), "locked": True,
+             "fmt": fmt(True, WHITE, NAVY, size=3, wrap=True), "locked": True,
              "children": [{"cells": {"Item": item, "Done": done, "To come": tocome, "Note": "" if note == "bold" else note, "Was": RO},
                            "fmt": fmt(bold=note == "bold", money=True), "locked": True} for item, done, tocome, note in summary]}]
     for side, title, bg, bg2 in (("in", "Money in · customer", GREEN_BG2, GREEN_BG), ("out", "Money out · costs", RED_BG2, RED_BG)):
@@ -105,11 +107,11 @@ def layout(v: dict, as_at: str, problems: list | None = None) -> list[dict]:
         sec = {"cells": {"Item": title, "Done": round(sum(g["done"] for g in groups), 2),
                          "To come": round(sum(g["tocome"] for g in groups), 2),
                          "Note": "add a row under this heading for a new forecast line", "Was": json.dumps({"section": side})},
-               "fmt": fmt(True, 0, bg, money=True, size=3), "locked": True,
+               "fmt": fmt(True, 0, bg, money=True, size=3, wrap=True), "locked": True,
                "children": [{"cells": {"Item": f"➕ To add a {'customer payment line' if side == 'in' else 'cost'}: right-click this row › "
                                                f"Insert Row Below, then fill Item and Forecast (required), Type (pick from the list), "
                                                f"Party and Date (expected). Saved at the next sync, or Refresh in the app.", "Was": RO},
-                             "fmt": fmt(color=GREY_TXT, italic=True), "locked": True}]}
+                             "fmt": fmt(color=GREY_TXT, italic=True, wrap=True), "locked": True}]}
         for g in groups:
             l = g["line"]
             note = []
@@ -150,7 +152,7 @@ def layout(v: dict, as_at: str, problems: list | None = None) -> list[dict]:
                                    "and Closed, or add a line under Money in / Money out: it's saved at the next sync. Payments come "
                                    "from NetSuite and can't be edited here. To remove a line, tick Closed or delete it in the app.",
                            "Was": RO},
-                 "fmt": fmt(color=GREY_TXT, italic=True), "locked": True, "children": []})
+                 "fmt": fmt(color=GREY_TXT, italic=True, wrap=True), "locked": True, "children": []})
     return rows
 
 
