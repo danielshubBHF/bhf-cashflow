@@ -2,6 +2,10 @@
 
 A save writes the changed cells to Smartsheet first, then patches the cached rows in place, so the
 next page render re-runs the model on cached data straight away (no reload, no waiting for a sync).
+
+Pages never wait on Smartsheet or NetSuite once the cache is warm: when it's older than CACHE_SECONDS (or the
+NetSuite figures older than an hour) a background thread refetches everything, in parallel, and swaps it in.
+A refetch that overlaps a save is thrown away and repeated, so a save is never undone by an older copy.
 In DEMO mode the fixture is the "sheet" and edits live in memory until the server restarts.
 """
 import copy
@@ -9,7 +13,9 @@ import datetime as dt
 import itertools
 import logging
 import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from . import config
 from . import model
@@ -63,6 +69,9 @@ class Store:
         self.at, self.data, self._tables = 0.0, None, {}
         self.bud, self.bud_at = None, 0.0
         self._ids = itertools.count(1)
+        self._writes = 0                                   # bumped by every save (see _refresh)
+        self._fetching = threading.Lock()                  # one refetch at a time
+        self._bud_fetching = threading.Lock()
 
     @property
     def demo(self) -> bool:
@@ -82,13 +91,58 @@ class Store:
                 for row in itertools.chain(*self.data):
                     row["_id"] = next(self._ids)
             return self.data
-        if force or not self.data or time.time() - self.at > config.CACHE_SECONDS:
-            self.data = tuple(self.table(k).load() for k in NAMES)
-            self.at = time.time()
+        if force or not self.data:
+            with self._fetching:                           # first page after a restart (or Refresh) waits
+                if force or not self.data:
+                    self._refresh()
+        elif time.time() - self.at > config.CACHE_SECONDS:
+            self._in_background(self._fetching, self._refresh)
         return self.data
+
+    @staticmethod
+    def _in_background(lock, fn):
+        if lock.acquire(blocking=False):                   # already running: nothing to do
+            def run():
+                try:
+                    fn()
+                except Exception:
+                    log.exception("background refresh failed")      # keep serving the last good copy
+                finally:
+                    lock.release()
+            threading.Thread(target=run, daemon=True).start()
+
+    def _refresh(self):
+        """Fetch the four database sheets, the Flag Log and the pipeline sheets in parallel, then swap them in."""
+        from .smartsheet_db import Table
+        for _ in range(3):
+            w0 = self._writes
+            tables = {k: Table(config.SHEETS[k]) for k in NAMES}
+            extra = {"flags": Table(config.SHEET_FLAGS) if config.SHEET_FLAGS else None,
+                     "pipe": Table(config.SHEET_PIPELINE) if config.SHEET_PIPELINE else None,
+                     "enq": Table(config.SHEET_ENQUIRIES)}
+            with ThreadPoolExecutor(max_workers=7) as ex:
+                got = {k: ex.submit(t.load) for k, t in {**tables, **{k: t for k, t in extra.items() if t}}.items()}
+                res = {}
+                for k, f in got.items():
+                    try:
+                        res[k] = f.result()
+                    except Exception:
+                        if k in NAMES:
+                            raise
+                        log.exception("%s sheet", k)          # the extras are optional
+                        res[k] = []
+            if self._writes != w0:                         # a save landed while fetching: fetch again
+                continue
+            self._tables.update(tables)
+            self._flag_table, self._pipe_table = extra["flags"], extra["pipe"]
+            self._flags, self._pipe, self._enq = res.get("flags", []), res.get("pipe", []), res.get("enq", [])
+            self.data = tuple(res[k] for k in NAMES)
+            self.at = self._flags_at = self._pipe_at = time.time()
+            return
 
     # ---- writes
     def _update(self, name: str, pairs: list[tuple[dict, dict]]):
+        self._writes += 1
         pairs = [(r, c) for r, c in pairs if c]
         if pairs and not self.demo:
             self.table(name).update([(r["_id"], c) for r, c in pairs])
@@ -96,6 +150,7 @@ class Store:
             r.update(c)
 
     def _add(self, name: str, rows: list, row: dict, parent=None):
+        self._writes += 1
         if self.demo:
             row["_id"] = next(self._ids)
         else:
@@ -171,6 +226,7 @@ class Store:
             return "That milestone has changed in Smartsheet since this page loaded. Refresh and try again."
         if row.get("Billed Doc"):
             return "This milestone has been billed in NetSuite, so it can't be removed."
+        self._writes += 1
         if not self.demo:
             self.table("schedule").delete([row["_id"]])
         self.load()[3].remove(row)
@@ -220,6 +276,7 @@ class Store:
                                               **values, "Milestone": label or f"Payment {i + 1}"})
         extra = ms[len(parts):]
         if extra:
+            self._writes += 1
             if not self.demo:
                 self.table("schedule").delete([m["_id"] for m in extra])
             for m in extra:
@@ -233,23 +290,33 @@ class Store:
         if self.demo:
             from tests.fixture_26001 import BUDGET
             return BUDGET
-        if not force and self.bud and time.time() - self.bud_at < BUDGET_SECONDS:
-            return self.bud
-        try:
-            from .netsuite import NetSuite
-            ns = NetSuite()
-            projects = [(p["Project"], p.get("NetSuite Job ID"), p.get("Unearned Acct ID"))
-                        for p in self.load()[0] if p.get("NetSuite Job ID") and p.get("Status") != "Closed"]
-            rows = [p for p in self.load()[0] if p.get("NetSuite Job ID") and p.get("Status") not in model.LIVE_OUT]
-            self.bud = {"fy": fy, "budget": ns.systems_budget(fy), "actual": ns.systems_actual(model.fy_months(fy)),
-                        "recognised": ns.recognised(projects, model.fy_start(today)),
-                        "pl_actuals": ns.pl_actuals([(p["Project"], p.get("NetSuite Job ID"), p.get("Unearned Acct ID"),
-                                                      p.get("WIP Acct ID")) for p in rows]),
-                        "at": dt.datetime.now().strftime("%d %b %y %H:%M")}
-            self.bud_at = time.time()
-        except Exception:
-            log.exception("budget from NetSuite failed")       # keep the last good copy, if any
+        if force or not self.bud:
+            with self._bud_fetching:
+                if force or not self.bud:
+                    try:
+                        self._fetch_budget(today, fy)
+                    except Exception:
+                        log.exception("budget from NetSuite failed")       # keep the last good copy, if any
+        elif time.time() - self.bud_at > BUDGET_SECONDS:
+            self._in_background(self._bud_fetching, lambda: self._fetch_budget(today, fy))
         return self.bud
+
+    def _fetch_budget(self, today: str, fy: str):
+        """The NetSuite figures for the FY card and P&L tabs: four queries, run side by side."""
+        from .netsuite import NetSuite
+        projects = [(p["Project"], p.get("NetSuite Job ID"), p.get("Unearned Acct ID"))
+                    for p in self.load()[0] if p.get("NetSuite Job ID") and p.get("Status") != "Closed"]
+        rows = [p for p in self.load()[0] if p.get("NetSuite Job ID") and p.get("Status") not in model.LIVE_OUT]
+        jobs = {"budget": lambda: NetSuite().systems_budget(fy),
+                "actual": lambda: NetSuite().systems_actual(model.fy_months(fy)),
+                "recognised": lambda: NetSuite().recognised(projects, model.fy_start(today)),
+                "pl_actuals": lambda: NetSuite().pl_actuals([(p["Project"], p.get("NetSuite Job ID"), p.get("Unearned Acct ID"),
+                                                              p.get("WIP Acct ID")) for p in rows])}
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            got = {k: ex.submit(f) for k, f in jobs.items()}
+            out = {k: f.result() for k, f in got.items()}
+        self.bud = {"fy": fy, **out, "at": dt.datetime.now().strftime("%d %b %y %H:%M")}
+        self.bud_at = time.time()
 
     # ---- P&L timing (Projects sheet): the PM's start month and months per stage, and the locked baseline
     PL_COLUMNS = {"P&L Start": "DATE", "P&L Stages": "TEXT_NUMBER", "P&L Locked": "DATE", "P&L Locked Start": "DATE",
@@ -288,6 +355,7 @@ class Store:
         if not self.demo and not config.SHEET_PIPELINE:
             return "The Pipeline sheet isn't set up (SHEET_PIPELINE)."
         _, pipe = self.pipeline()
+        self._writes += 1
         values = {**values, "Updated": dt.date.today().isoformat()}
         row = next((s for s in pipe if str(s.get("Row ID")) == str(row_id)), None)
         if row:
@@ -316,6 +384,7 @@ class Store:
         if not self.demo and not config.SHEET_FLAGS:
             return "The Flag Log sheet isn't set up (SHEET_FLAGS)."
         log = self.flag_log()
+        self._writes += 1
         flag = f"{code}:{key}"
         row = {"Flag": flag, "Project": code, "Kind": kind, "Item": text[:400], "Amount": amount if amount not in (None, "") else None,
                "Reason": (reason or "").strip()[:400] or None, "Acknowledged": dt.date.today().isoformat()}
@@ -334,6 +403,7 @@ class Store:
 
     def restore_flag(self, code: str, key: str) -> str | None:
         log = self.flag_log()
+        self._writes += 1
         old = [r for r in log if r.get("Flag") == f"{code}:{key}"]
         if old and not self.demo:
             self._flag_table.delete([r["_id"] for r in old])

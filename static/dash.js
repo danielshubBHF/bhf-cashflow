@@ -41,6 +41,26 @@
   window.bhfTabs = { show: t => show(paneFor(t), true) };
 })();
 
+// Total timeline -> months per stage, as you type (same rule as pl.split_total: 2/2/3/2/2 proportions).
+(() => {
+  const BASE = [2, 2, 3, 2, 2];
+  const split = n => {
+    n = Math.max(5, Math.min(120, Math.floor(n)));
+    const tot = BASE.reduce((a, b) => a + b, 0), raw = BASE.map(m => n * m / tot);
+    const out = raw.map(r => Math.max(1, Math.floor(r)));
+    const order = raw.map((r, i) => i).sort((a, b) => ((raw[b] - Math.floor(raw[b])) - (raw[a] - Math.floor(raw[a]))) || a - b);
+    for (let i = 0; out.reduce((a, b) => a + b, 0) < n; i++) out[order[i % order.length]]++;
+    return out.join("/");
+  };
+  document.addEventListener("input", e => {
+    const t = e.target.closest("input[data-split]");
+    if (!t || !t.value || +t.value < 5) return;
+    const box = t.form ? t.form.querySelector(`[name="${t.dataset.split}"]`)
+                       : document.querySelector(`[form="${t.getAttribute("form")}"][name="${t.dataset.split}"]`);
+    if (box) box.value = split(+t.value);
+  });
+})();
+
 // Drawers (.ovl), the line detail side panels (.ovl.side), expandable lines in Forecast & payments (.fl)
 // and the In / Out list filters.
 //  - [data-open="<id>"] opens a drawer or panel; with data-line="<key>" it also expands that line.
@@ -214,6 +234,9 @@ document.addEventListener("submit", e => {
     else { p += r.formula; proj.push(Math.round(p)); }
   });
   if (last < 0) proj[0] = Math.round(rows[0].formula);
+  // Overlay: the weighted pipeline on top of the live projects' projection (from the same starting point).
+  const hasPipe = rows.some(r => r.pipeline);
+  const withPipe = proj.map((v, i) => v == null ? null : v + rows.slice(0, i + 1).reduce((s, r) => s + (r.pipeline || 0), 0));
   const fmt = n => "$" + (Math.abs(n) >= 1e6 ? (n / 1e6).toFixed(2) + "M" : Math.round(n / 1000) + "k");
   window.bhfBudChart = new Chart(el, {
     type: "line",
@@ -221,6 +244,7 @@ document.addEventListener("submit", e => {
       { label: "Budget (cumulative)", data: bud, borderColor: v("--muted") || "#7c8894", borderWidth: 2, pointRadius: 0, tension: 0 },
       { label: "Actual (closed months)", data: act, borderColor: v("--navy") || "#0E2A47", backgroundColor: v("--navy") || "#0E2A47", borderWidth: 3, pointRadius: 3, tension: 0 },
       { label: "Projected by P&L formula", data: proj, borderColor: v("--cyan") || "#00A4C7", borderDash: [6, 4], borderWidth: 2, pointRadius: 0, tension: 0 },
+      ...(hasPipe ? [{ label: "Projected + pipeline (weighted)", data: withPipe, borderColor: "#c98a1f", borderDash: [2, 3], borderWidth: 2.5, pointRadius: 0, tension: 0 }] : []),
     ] },
     options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
       plugins: { legend: { position: "top", align: "end", labels: { boxWidth: 14, font: { size: 12 } } },

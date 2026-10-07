@@ -76,3 +76,18 @@ if __name__ == "__main__":
     for name, f in list(globals().items()):
         if name.startswith("test_"):
             f(); print("PASS", name)
+
+
+def test_total_timeline_splits_in_standard_proportions():
+    from bhf import pl
+    assert pl.split_total(11) == [2, 2, 3, 2, 2]
+    assert pl.split_total(14) == [3, 3, 4, 2, 2]
+    assert pl.split_total(5) == [1, 1, 1, 1, 1]
+    for n in range(5, 61):
+        m = pl.split_total(n)
+        assert sum(m) == n and min(m) >= 1
+    # a new total wins over the old stages; stages edited to match the total are kept
+    assert pl.timing("2/2/3/2/2", "14", [2, 2, 3, 2, 2]) == [3, 3, 4, 2, 2]
+    assert pl.timing("4/2/4/2/2", "14", [2, 2, 3, 2, 2]) == [4, 2, 4, 2, 2]
+    assert pl.timing("2/2/3/2/2", "11", [2, 2, 3, 2, 2]) == [2, 2, 3, 2, 2]
+    assert pl.timing("", "", None) is None

@@ -104,14 +104,16 @@
   </div>
   <div class="bud-tables">
     <div class="ct-scroll"><table class="ct bud-months">
-      <colgroup><col><col style="width:7rem"><col style="width:7rem"><col style="width:7rem"></colgroup>
-      <thead><tr><th>Month</th><th class="n">Budget</th><th class="n">Actual</th><th class="n">vs budget</th></tr></thead>
+      {% set pipe = bv.pipeline_w is defined and bv.pipeline_w %}
+      <colgroup><col><col style="width:7rem"><col style="width:7rem"><col style="width:7rem">{% if pipe %}<col style="width:7rem">{% endif %}</colgroup>
+      <thead><tr><th>Month</th><th class="n">Budget</th><th class="n">Actual</th><th class="n">vs budget</th>{% if pipe %}<th class="n">Pipeline <small>weighted</small></th>{% endif %}</tr></thead>
       <tbody>
       {% for r in bv.rows %}<tr class="{{ 'muted-row' if not r.closed and not r.current }}"><td>{{ r.month }}{% if r.current %} <small>part month</small>{% endif %}</td>
         <td class="n">{{ r.budget|money }}</td><td class="n">{{ r.actual|money if r.closed or r.current else '—' }}</td>
-        <td class="n {{ 'neg' if r.closed and r.actual < r.budget else 'pos' if r.closed else '' }}">{{ (r.actual - r.budget)|signed if r.closed else '' }}</td></tr>{% endfor %}
+        <td class="n {{ 'neg' if r.closed and r.actual < r.budget else 'pos' if r.closed else '' }}">{{ (r.actual - r.budget)|signed if r.closed else '' }}</td>
+        {% if pipe %}<td class="n">{{ r.pipeline|money if r.pipeline else '' }}</td>{% endif %}</tr>{% endfor %}
       </tbody>
-      <tfoot><tr><td>{{ bv.fy }}</td><td class="n">{{ bv.budget_year|money }}</td><td class="n">{{ bv.actual_ytd|money }}</td><td class="n">{{ bv.vs_closed|signed }}<small>closed months</small></td></tr></tfoot>
+      <tfoot><tr><td>{{ bv.fy }}</td><td class="n">{{ bv.budget_year|money }}</td><td class="n">{{ bv.actual_ytd|money }}</td><td class="n">{{ bv.vs_closed|signed }}<small>closed months</small></td>{% if pipe %}<td class="n">{{ bv.pipeline_w|money }}</td>{% endif %}</tr></tfoot>
     </table></div>
     <div class="bud-right"><div class="ct-scroll"><table class="ct bud-proj">
       <thead><tr><th>Live project</th><th class="n">Contract</th><th class="n">Recognised before {{ bv.fy }}</th><th class="n">{{ bv.fy }} recognised</th>{% if bv.scheduled_rest is not none %}<th class="n">Rest of {{ bv.fy }} (formula)</th>{% endif %}<th class="n">Still to recognise</th></tr></thead>
@@ -122,8 +124,9 @@
       {% set x = bv.scheduled_rest is not none %}
       {% if (bv.projects_fy - live_fy)|abs >= 0.5 %}<tr class="done"><td>Completed projects</td><td></td><td></td><td class="n">{{ (bv.projects_fy - live_fy)|money }}</td>{% if x %}<td></td>{% endif %}<td></td></tr>{% endif %}
       {% if bv.other_fy|abs >= 0.5 %}<tr class="done"><td>Other Systems sales <small>not on a project in this app</small></td><td></td><td></td><td class="n">{{ bv.other_fy|money }}</td>{% if x %}<td></td>{% endif %}<td></td></tr>{% endif %}
+      {% if x and bv.pipeline_w is defined %}<tr class="pipe-row"><td><a href="#pipeline">Pipeline</a> <small>weighted · {{ bv.pipeline_n }} enquir{{ 'y' if bv.pipeline_n == 1 else 'ies' }} in the forecast</small></td><td></td><td></td><td></td><td class="n">{{ bv.pipeline_w|money if bv.pipeline_w else '—' }}</td><td></td></tr>{% endif %}
       </tbody>
-      <tfoot><tr><td>Total</td><td></td><td></td><td class="n">{{ bv.actual_ytd|money }}</td>{% if x %}<td class="n">{{ bv.scheduled_rest|money }}</td>{% endif %}<td class="n">{{ bv.secured|money }}</td></tr></tfoot>
+      <tfoot><tr><td>Total{% if x and bv.pipeline_w %} <small>incl. pipeline</small>{% endif %}</td><td></td><td></td><td class="n">{{ bv.actual_ytd|money }}</td>{% if x %}<td class="n">{{ (bv.scheduled_rest + (bv.pipeline_w or 0))|money }}</td>{% endif %}<td class="n">{{ bv.secured|money }}</td></tr></tfoot>
     </table></div>
     <div class="bud-chart"><canvas id="budchart" aria-label="{{ bv.fy }} cumulative budget vs actual"></canvas></div>
     </div>
@@ -147,6 +150,7 @@
     <div class="stg-list">{% for s in pl.stages %}<span><b>{{ s.name }}</b> {{ '%.0f'|format(s.pct * 100) }}% · {{ s.months }} month{{ '' if s.months == 1 else 's' }}</span>{% endfor %}</div>
     <form method="post" action="/p/{{ code }}/pl" class="pl-form">
       <label>Start month <input type="month" name="start" value="{{ pl.start }}"></label>
+      <label>Total timeline <input name="total" type="number" min="5" max="120" value="{{ pl.months|sum }}" data-split="stages" style="width:4.5em"> months</label>
       <label>Months per stage <input name="stages" value="{{ pl.months|join('/') }}" size="10" pattern="\d+(/\d+){4}" title="Five whole numbers, e.g. 2/2/3/2/2"></label>
       <button class="btn">Save timing</button>
     </form>

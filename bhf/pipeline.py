@@ -65,7 +65,7 @@ def view(enquiries: list[dict], settings: list[dict], today: str, fy: str) -> di
     unweighted and weighted, plus totals."""
     mine = {str(s.get("Row ID")): s for s in settings if s.get("Row ID")}
     nxt = f"FY{int(fy[2:]) + 1:02d}"
-    rows = []
+    rows, by_month = [], {}
     for r in enquiries:
         if not is_open_systems(r):
             continue
@@ -76,6 +76,10 @@ def view(enquiries: list[dict], settings: list[dict], today: str, fy: str) -> di
         months = pl.parse_months(s.get("Stages"))
         sched = pl.spread(value, start, months) if value > 0 and start else {}
         this = round(sum(a for m, a in sched.items() if model.fy_of(m) == fy and m >= today[:7]), 2)
+        if not s.get("Exclude"):
+            for m, a in sched.items():
+                if model.fy_of(m) == fy and m >= today[:7]:
+                    by_month[m] = by_month.get(m, 0.0) + a * prob
         then = round(sum(a for m, a in sched.items() if model.fy_of(m) == nxt), 2)
         rows.append({"id": r["_id"], "name": r.get(NAME), "lead": r.get(LEAD) or "", "likelihood": r.get(LIKELIHOOD) or r.get(OLD_LIKELIHOOD) or "",
                      "conversion": r.get(CONVERSION) or "", "value": value, "prob": prob, "start": start,
@@ -88,5 +92,6 @@ def view(enquiries: list[dict], settings: list[dict], today: str, fy: str) -> di
     rows.sort(key=lambda x: (not x["include"], x["needs_start"], -x["this_w"], -x["value"]))
     inc = [x for x in rows if x["include"]]
     tot = {k: round(sum(x[k] for x in inc), 2) for k in ("value", "this", "next", "this_w", "next_w")}
-    return {"fy": fy, "next_fy": nxt, "rows": rows, "count": len(inc), "no_start": sum(1 for x in inc if x["needs_start"]),
+    return {"fy": fy, "next_fy": nxt, "rows": rows, "count": len(inc),
+            "by_month": {m: round(a, 2) for m, a in sorted(by_month.items())}, "no_start": sum(1 for x in inc if x["needs_start"]),
             "no_start_value": round(sum(x["value"] for x in inc if x["needs_start"]), 2), **tot}

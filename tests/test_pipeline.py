@@ -44,3 +44,10 @@ def test_overrides_and_exclude():
     assert r["this"] == 450000 and r["this_w"] == 360000 and r["next"] == 50000      # Mar-Jun = stages 1-4 = 90%
     v = pp.view([enq(1), enq(2)], [{"Row ID": "2", "Exclude": True}], TODAY, "FY27")
     assert v["count"] == 1 and [r["include"] for r in v["rows"]] == [True, False]
+
+
+def test_weighted_pipeline_by_month_adds_up_to_the_fy_total():
+    s = [{"Row ID": "1", "Start": "2026-12-01", "Probability %": 50}]
+    v = pp.view([enq(1), enq(2)], s, TODAY, "FY27")
+    assert v["by_month"] and min(v["by_month"]) == "2026-12" and max(v["by_month"]) <= "2027-06"
+    assert abs(sum(v["by_month"].values()) - v["this_w"]) < 0.05 and v["this_w"] == 350000

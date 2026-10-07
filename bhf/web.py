@@ -11,6 +11,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import auth, config, editor, model, pl
@@ -21,6 +22,23 @@ log = logging.getLogger("web")
 ROOT = Path(__file__).resolve().parents[1]
 app = FastAPI(title="BHF Project Cashflow")
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "change-me"), max_age=60 * 60 * 12)
+app.add_middleware(GZipMiddleware, minimum_size=1000)            # pages are mostly repeated markup: ~8x smaller
+
+
+@app.middleware("http")
+async def cache_static(request: Request, call_next):
+    """Versioned static files (?v=…) never change: let the browser keep them instead of asking every page."""
+    resp = await call_next(request)
+    if request.url.path.startswith("/static/") and "v" in request.query_params:
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
+
+
+@app.on_event("startup")
+def warm():
+    """Load Smartsheet and NetSuite as soon as the server starts, so the first visitor doesn't wait for it."""
+    if not store.demo:
+        threading.Thread(target=lambda: (store.load(), store.budget()), daemon=True).start()
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 tpl = Jinja2Templates(directory=ROOT / "templates")
 _has = lambda v: isinstance(v, (int, float, str)) and v != ""                            # blank / missing cell
@@ -47,7 +65,7 @@ def pie(values) -> str:
 
 
 LOGO = (ROOT / "static" / "logo-datauri.txt").read_text(encoding="utf-8").strip()      # BHF logo, inlined once
-ASSET_V = "2610n"          # bump when static/*.css or *.js change, so browsers fetch the new file
+ASSET_V = "2610p"          # bump when static/*.css or *.js change, so browsers fetch the new file
 tpl.env.globals.update(asset_v=ASSET_V, fy_start=model.fy_start, norm=model.norm, cost_types=editor.COST_TYPES, pal=PAL, pie=pie, logo=LOGO,
                         today=lambda: dt.date.today().isoformat())
 app.include_router(auth.router)
@@ -104,8 +122,13 @@ def pipeline_view(c) -> dict | None:
     today = dt.date.today().isoformat()
     pv = pipeline.view(enq, pipe, today, model.fy_of(today[:7]))
     if c.get("bv"):
-        c["bv"]["pipeline_w"] = pv["this_w"]
-        c["bv"]["gap_after"] = round(c["bv"]["gap"] - pv["this_w"], 2)
+        bv = c["bv"]
+        bv["pipeline_w"] = pv["this_w"]
+        bv["pipeline_n"] = sum(1 for r in pv["rows"] if r["group"] == "counted")
+        bv["gap_after"] = round(bv["gap"] - pv["this_w"], 2)
+        for r in bv["rows"]:                     # "Oct 2026" -> the pipeline's "2026-10"
+            key = f"{r['month'][-4:]}-{model.MONTHS.index(r['month'][:3]) + 1:02d}"
+            r["pipeline"] = pv["by_month"].get(key, 0.0)
     return pv
 
 
@@ -131,6 +154,9 @@ async def save_pipeline(request: Request, row_id: str):
         return RedirectResponse("/?" + (f"err={quote(err)}&" if err else "") + "tab=pipeline#pipeline", status_code=303)
     start, stages = str(form.get("start") or "").strip(), str(form.get("stages") or "").strip()
     prob, value = str(form.get("prob") or "").strip(), str(form.get("value") or "").strip()
+    total = str(form.get("total") or "").strip()
+    if total.isdigit() and 5 <= int(total) <= 120:
+        stages = "/".join(map(str, pl.timing(stages, total, [int(x) for x in stages.split("/") if x.isdigit()] if total else None)))
     err = None
     if start and not pl.ym(start):
         err = "Start month must look like 2026-11."
@@ -193,6 +219,17 @@ def completed_one(request: Request, code: str):
     return tpl.TemplateResponse(request, "completed_one.html", c)
 
 
+def load_pl(code: str) -> dict | None:
+    """The project's current P&L timing (to tell a new total timeline from an unchanged one)."""
+    try:
+        projects, forecasts, txns, sched = load()
+        p = next(x for x in projects if x.get("Project") == code)
+        v = model.project_view(p, forecasts, txns, sched)
+        return pl.project_pl(p, v, dt.date.today().isoformat(), None)
+    except Exception:
+        return None
+
+
 @app.post("/p/{code}/pl")
 async def save_pl(request: Request, code: str):
     """The PM's P&L timing: start month and months per stage (e.g. 2/2/3/2/2)."""
@@ -200,14 +237,19 @@ async def save_pl(request: Request, code: str):
         return r
     form = await request.form()
     start, stages = str(form.get("start") or "").strip(), str(form.get("stages") or "").strip()
+    total = str(form.get("total") or "").strip()
     err = None
+    cur = (load_pl(code) or {}).get("months")
     if start and not pl.ym(start):
         err = "Start month must look like 2026-04."
-    elif stages and pl.parse_months(stages) != [int(x) for x in stages.replace(",", "/").split("/") if x.strip().isdigit()]:
+    elif total and (not total.isdigit() or not 5 <= int(total) <= 120):
+        err = "Total timeline must be a whole number of months, 5 or more."
+    elif stages and not total and pl.parse_months(stages) != [int(x) for x in stages.replace(",", "/").split("/") if x.strip().isdigit()]:
         err = "Months per stage must be five whole numbers, e.g. 2/2/3/2/2."
     if not err:
+        months = pl.timing(stages, total, cur)
         err = _safely(store.save_project, code, {"P&L Start": f"{pl.ym(start)}-01" if start else None,
-                                                 "P&L Stages": "/".join(map(str, pl.parse_months(stages))) if stages else None})
+                                                 "P&L Stages": "/".join(map(str, months)) if months else None})
     return _done(request, code, err, "pl")
 
 

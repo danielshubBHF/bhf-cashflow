@@ -42,7 +42,7 @@
   </div>
 
   <div class="ct-scroll"><table class="ct pipe-tbl">
-    <thead><tr><th>In the forecast</th><th class="n">Value</th><th>Start month</th><th>Months per stage</th><th class="n">Probability</th>
+    <thead><tr><th>In the forecast</th><th class="n">Value</th><th>Start month</th><th>Timeline · months per stage</th><th class="n">Probability</th>
       <th class="n">{{ pv.fy }}</th><th class="n">{{ pv.fy }} weighted</th><th class="n">{{ pv.next_fy }} weighted</th><th></th></tr></thead>
     <tbody>
     {% for r in counted %}
@@ -51,7 +51,8 @@
         <form id="pf-{{ r.id }}" method="post" action="/pipeline/{{ r.id }}"><input type="hidden" name="name" value="{{ r.name }}"></form></td>
       <td class="n">{{ pipe_value(r) }}</td>
       <td><input form="pf-{{ r.id }}" type="month" name="start" value="{{ r.start or '' }}" aria-label="Start month"></td>
-      <td><input form="pf-{{ r.id }}" name="stages" value="{{ r.stages }}" size="8" aria-label="Months per stage"></td>
+      <td class="nowrap"><input form="pf-{{ r.id }}" name="total" type="number" min="5" max="120" value="{{ r.months|sum }}" data-split="stages" style="width:4em" aria-label="Total timeline (months)"> mo
+        <input form="pf-{{ r.id }}" name="stages" value="{{ r.stages }}" size="8" aria-label="Months per stage"></td>
       <td class="n"><input form="pf-{{ r.id }}" name="prob" value="{{ '%g'|format(r.prob * 100) }}" size="3" inputmode="decimal" aria-label="Probability %">%</td>
       <td class="n">{{ r.this|money }}</td><td class="n"><b>{{ r.this_w|money }}</b></td><td class="n">{{ r.next_w|money }}</td>
       <td class="c nowrap"><button form="pf-{{ r.id }}" class="btn ghost">Save</button>

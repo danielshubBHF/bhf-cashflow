@@ -39,6 +39,41 @@ def parse_months(s) -> list[int]:
     return m if len(m) == 5 and all(x >= 1 for x in m) else list(DEFAULT_MONTHS)
 
 
+def split_total(total) -> list[int]:
+    """A whole timeline in months -> months per stage, in the standard 2/2/3/2/2 proportions (each stage at least
+    one month; the leftover months go to the stages with the largest remainders, earliest first): 14 -> 3/3/4/2/2."""
+    try:
+        n = int(float(total))
+    except (TypeError, ValueError):
+        return list(DEFAULT_MONTHS)
+    n = max(len(DEFAULT_MONTHS), min(n, 120))
+    base = sum(DEFAULT_MONTHS)
+    raw = [n * m / base for m in DEFAULT_MONTHS]
+    out = [max(1, int(r)) for r in raw]
+    order = sorted(range(len(raw)), key=lambda i: (-(raw[i] - int(raw[i])), i))
+    i = 0
+    while sum(out) < n:
+        out[order[i % len(order)]] += 1
+        i += 1
+    while sum(out) > n:                                   # only when the 1-month floors pushed it over
+        j = max((k for k in range(len(out)) if out[k] > 1), key=lambda k: out[k] - raw[k])
+        out[j] -= 1
+    return out
+
+
+def timing(stages: str, total: str, current: list[int] | None = None) -> list[int] | None:
+    """What the PM typed: a new total timeline wins (split by the standard proportions) unless the stage months
+    were edited to match it; otherwise the months per stage. None when both are blank."""
+    stages, total = str(stages or "").strip(), str(total or "").strip()
+    typed = parse_months(stages) if stages else None
+    if total.isdigit():
+        if typed and sum(typed) == int(total) and typed != list(current or []):
+            return typed
+        if not typed or sum(typed) != int(total):
+            return split_total(total)
+    return typed
+
+
 def ym(d) -> str | None:
     s = str(d or "").strip()
     return s[:7] if re.match(r"\d{4}-\d{2}", s) else None
