@@ -23,6 +23,7 @@
     });
     if (remember) history.replaceState(history.state, "", "#" + p.dataset.tab);
     window.dispatchEvent(new Event("resize"));               // the cash chart sizes itself when it becomes visible
+    requestAnimationFrame(() => [window.bhfChart, window.bhfBudChart].forEach(c => c && c.resize()));   // and if it missed that
   }
   const fromHash = () => paneFor(decodeURIComponent(location.hash.slice(1)));
   show(fromHash() || paneFor(bar.dataset.default) || panes[0]);
@@ -214,7 +215,7 @@ document.addEventListener("submit", e => {
   });
   if (last < 0) proj[0] = Math.round(rows[0].formula);
   const fmt = n => "$" + (Math.abs(n) >= 1e6 ? (n / 1e6).toFixed(2) + "M" : Math.round(n / 1000) + "k");
-  new Chart(el, {
+  window.bhfBudChart = new Chart(el, {
     type: "line",
     data: { labels: rows.map(r => r.label), datasets: [
       { label: "Budget (cumulative)", data: bud, borderColor: v("--muted") || "#7c8894", borderWidth: 2, pointRadius: 0, tension: 0 },
