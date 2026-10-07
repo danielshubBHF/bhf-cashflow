@@ -60,15 +60,31 @@ class NetSuite:
                      BUILTIN.DF(t.entity), BUILTIN.DF(t.status), BUILTIN.DF(t.currency)""")
 
     def paid_dates(self, ids: list[int]) -> dict[int, str]:
+        """When each bill / invoice was paid. Most are paid by a payment; some by applying a supplier prepayment
+        (VPrepApp) or customer deposit (DepAppl). For those the cash moved when the prepayment / deposit was made,
+        so that date is used (the application date if the source can't be found)."""
         if not ids:
             return {}
         rows = self.query(f"""
-            SELECT ntl.previousdoc AS doc, MAX(p.trandate) AS paid
+            SELECT ntl.previousdoc AS doc, p.id AS pid, p.type AS ptype, p.trandate AS paid
             FROM NextTransactionLink ntl JOIN transaction p ON p.id = ntl.nextdoc
             WHERE ntl.previousdoc IN ({",".join(map(str, ids))})
-              AND p.type IN ('VendPymt','CustPymt','VendCred','CustCred')
-            GROUP BY ntl.previousdoc""")
-        return {int(r["doc"]): r["paid"] for r in rows}
+              AND p.type IN ('VendPymt','CustPymt','VendCred','CustCred','VPrepApp','DepAppl')""")
+        apps = sorted({int(r["pid"]) for r in rows if r["ptype"] in ("VPrepApp", "DepAppl")})
+        source = {}
+        if apps:
+            for r in self.query(f"""
+                SELECT ntl.nextdoc AS app, src.trandate AS paid
+                FROM NextTransactionLink ntl JOIN transaction src ON src.id = ntl.previousdoc
+                WHERE ntl.nextdoc IN ({",".join(map(str, apps))}) AND src.type IN ('VendPrep','CustDep')"""):
+                source.setdefault(int(r["app"]), []).append(r["paid"])
+        out = {}
+        for r in rows:
+            d = min(source[int(r["pid"])], key=dmy) if int(r["pid"]) in source else r["paid"]
+            doc = int(r["doc"])
+            if doc not in out or dmy(d) > dmy(out[doc]):          # fully paid on the latest payment
+                out[doc] = d
+        return out
 
     # ---- FY budget tracking: "Systems Sales" (accounts 4071-4079) budget vs recognised revenue, by period
     SYSTEMS = "BUILTIN.DF({col}) LIKE '407%'"
@@ -224,6 +240,15 @@ def amount(doc: dict) -> float:
     if t in ("VendCred", "CustCred"):
         a = -abs(a)
     return round(a, 2)
+
+
+def dmy(d) -> tuple:
+    """NetSuite's d/m/yyyy as a sortable tuple."""
+    try:
+        day, mon, yr = (int(x) for x in str(d).split("/"))
+        return yr, mon, day
+    except ValueError:
+        return 0, 0, 0
 
 
 def is_paid(doc: dict) -> bool:

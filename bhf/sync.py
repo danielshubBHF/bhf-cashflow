@@ -152,7 +152,8 @@ def run(dry: bool = False):
                 "Amount": amount(d),
                 "Currency Amount": "" if ccy in ("", "Australian Dollar") else f"{ccy} {float(d.get('fx') or 0):,.2f}",
                 "Status": (d.get("status") or "").split(" : ")[-1],
-                "Paid Date": iso(paid.get(int(d["id"]))) if is_paid(d) else None,
+                # Settled with no payment found (stock issues, card charges, applied credits): the document date.
+                "Paid Date": iso(paid.get(int(d["id"])) or d.get("trandate")) if is_paid(d) else None,
                 "Forecast": fc, "NetSuite ID": str(d["id"]), "Synced": stamp,
             }
             if existing:

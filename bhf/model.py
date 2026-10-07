@@ -772,3 +772,50 @@ def apply_acknowledgements(views: list, log: list[dict]) -> int:
         v["flags"], v["flag_meta"], v["flags_ack"] = open_, open_meta, done
         total += len(open_)
     return total
+
+
+# ---- completed projects: final figures from NetSuite documents (no forecasts needed)
+def completed_view(v: dict, p: dict, txns: list) -> dict:
+    """What a finished job made, document basis: invoiced vs costs billed, what's still owed either way,
+    margin, by financial year and by supplier, plus any POs still open in NetSuite to close out."""
+    code = v["code"]
+    pt = [t for t in txns if t.get("Project") == code]
+    docs = [t for t in pt if t.get("Type") not in ORDER_TYPES]
+    ins = sorted([t for t in docs if t.get("Direction") == "In"], key=lambda t: str(t.get("Date") or ""))
+    outs = sorted([t for t in docs if t.get("Direction") != "In"], key=lambda t: str(t.get("Date") or ""))
+    # Credits (credit notes, bill credits) are settled by being applied, so they count as received / paid.
+    settled = lambda t: bool(t.get("Paid Date")) or num(t.get("Amount")) < 0
+    s = lambda rows, paid=None: round(sum(num(t.get("Amount")) for t in rows if paid is None or settled(t) == paid), 2)
+    invoiced, costs = s(ins), s(outs)
+    labour = num(p.get("Internal Labour"))
+    gm = round(invoiced - costs, 2)
+    suppliers = defaultdict(lambda: {"amount": 0.0, "docs": 0})
+    for t in outs:
+        x = suppliers[t.get("Party") or "Unknown"]
+        x["amount"] += num(t.get("Amount"))
+        x["docs"] += 1
+    by_supplier = sorted(({"party": k, "amount": round(x["amount"], 2), "docs": x["docs"]} for k, x in suppliers.items()),
+                         key=lambda x: -x["amount"])
+    fys = []
+    for fy, d in sorted(v["fy_docs"].items(), key=lambda x: x[0] or ""):
+        if fy:
+            fys.append({"fy": fy, "invoiced": d.get("invoiced", 0.0), "billed": d.get("billed", 0.0),
+                        "gm": round(d.get("invoiced", 0.0) - d.get("billed", 0.0), 2)})
+    dates = [str(t.get("Date"))[:10] for t in docs if t.get("Date")]
+    open_pos = [t for t in pt if t.get("Type") == "PO" and str(t.get("Status") or "") not in DONE_STATUSES]
+    return {
+        "code": code, "name": v["name"], "pm": v["pm"], "contract": num(p.get("Contract Value")),
+        "first": min(dates) if dates else None, "last": max(dates) if dates else None,
+        "invoiced": invoiced, "received": s(ins, True), "owed_to_us": s(ins, False),
+        "costs": costs, "paid": s(outs, True), "owed_by_us": s(outs, False),
+        "gm": gm, "gm_pct": gm / invoiced if invoiced else 0.0,
+        "labour": labour, "nm": round(gm - labour, 2) if labour else None,
+        "nm_pct": (gm - labour) / invoiced if labour and invoiced else None,
+        "fys": fys, "by_supplier": by_supplier, "invoices": ins, "costs_docs": outs, "open_pos": open_pos,
+    }
+
+
+def completed_totals(rows: list) -> dict:
+    t = {k: round(sum(r[k] for r in rows), 2) for k in ("invoiced", "received", "owed_to_us", "costs", "paid", "owed_by_us", "gm")}
+    t["gm_pct"] = t["gm"] / t["invoiced"] if t["invoiced"] else 0.0
+    return t

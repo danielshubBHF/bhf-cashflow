@@ -846,3 +846,18 @@ table.editor td.gap{font-size:12px}
 .termsform input[name=split]{flex:1;min-width:0;font:inherit;font-size:12.5px;padding:3px 7px;border:1px solid var(--edge);border-radius:6px}
 .att li.wrong::before,.att li.miscode::before,.att li.standalone::before{background:var(--bad)}
 .att li.shared::before,.att li.custpo::before{background:var(--cyan)}
+
+/* completed projects */
+.ctbl td small.neg{color:var(--bad)}
+.ckpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 12px}
+.ckpi{background:var(--bg);border:1px solid var(--edge);border-left:4px solid var(--cyan);border-radius:var(--r);box-shadow:var(--sh);padding:10px 14px;min-width:0}
+.ckpi span{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700}
+.ckpi b{display:block;font-family:var(--head);font-weight:600;font-size:26px;color:var(--navy);margin:4px 0 2px;letter-spacing:-.6px}
+.ckpi b.neg{color:var(--bad)} .ckpi small{font-size:13px;color:var(--muted)}
+.cgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-bottom:12px}
+.cgrid .card .cbody{max-height:420px;overflow:auto}
+details.card.docs{margin-bottom:12px} details.card.docs>summary{cursor:pointer;list-style:none}
+details.card.docs>summary::before{content:"▸ ";color:var(--muted)} details.card.docs[open]>summary::before{content:"▾ "}
+details.card.docs .cbody{max-height:520px;overflow:auto}
+.ptabs a.ptab-done{margin-left:auto;opacity:.85}
+@media (max-width:900px){ .ckpis{grid-template-columns:1fr 1fr} .cgrid{grid-template-columns:1fr} }

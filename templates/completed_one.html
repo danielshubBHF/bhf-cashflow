@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ x.code }} {{ x.name }} · Completed · Project Cashflow{% endblock %}
+{% block main %}
+<div class="pagebar">
+  <h2>{{ x.code }} {{ x.name }}</h2>
+  <span class="by">{% if x.pm %}PM {{ x.pm }} · {% endif %}Completed · {{ x.first|mdate }} – {{ x.last|mdate }} · <a href="/completed">all completed projects</a></span>
+</div>
+
+<div class="ckpis">
+  <div class="ckpi"><span>Invoiced</span><b>{{ x.invoiced|money }}</b><small>{% if x.contract %}contract {{ x.contract|money }}{% else %}customer invoices less credits{% endif %}</small></div>
+  <div class="ckpi"><span>Received</span><b>{{ x.received|money }}</b><small>{% if x.owed_to_us >= 0.5 %}<span class="neg">{{ x.owed_to_us|money }} still owed</span>{% else %}all received{% endif %}</small></div>
+  <div class="ckpi"><span>Costs billed</span><b>{{ x.costs|money }}</b><small>{% if x.owed_by_us >= 0.5 %}{{ x.owed_by_us|money }} still to pay{% else %}all paid{% endif %}</small></div>
+  <div class="ckpi"><span>Gross margin</span><b class="{{ 'neg' if x.gm < 0 }}">{{ x.gm|money }}</b><small>{{ x.gm_pct|pct }} of invoiced{% if x.nm is not none %} · {{ x.nm|money }} after BHF labour{% endif %}</small></div>
+</div>
+
+<div class="cgrid">
+  <section class="card" aria-label="By financial year">
+    <div class="cap">By financial year</div>
+    <div class="cbody">
+    <table class="tbl">
+      <thead><tr><th>FY</th><th>Invoiced</th><th>Costs billed</th><th>Margin</th></tr></thead>
+      <tbody>{% for f in x.fys %}<tr><td>{{ f.fy }}</td><td class="num">{{ f.invoiced|money }}</td><td class="num">{{ f.billed|money }}</td><td class="num {{ 'neg' if f.gm < 0 }}">{{ f.gm|money }}</td></tr>{% endfor %}
+      <tr class="tot"><td>Total</td><td>{{ x.invoiced|money }}</td><td>{{ x.costs|money }}</td><td>{{ x.gm|money }}</td></tr></tbody>
+    </table>
+    </div>
+  </section>
+
+  <section class="card" aria-label="Costs by supplier">
+    <div class="cap">Costs by supplier <span class="tag">{{ x.by_supplier|length }}</span></div>
+    <div class="cbody">
+    <table class="tbl">
+      <thead><tr><th>Supplier</th><th>Billed</th><th>Share</th></tr></thead>
+      <tbody>{% for s in x.by_supplier %}<tr><td>{{ s.party }} <small>{{ s.docs }} doc{{ '' if s.docs == 1 else 's' }}</small></td><td class="num">{{ s.amount|money }}</td><td class="num">{{ s.amount|share(x.costs) }}</td></tr>{% endfor %}</tbody>
+    </table>
+    </div>
+  </section>
+</div>
+
+{% if x.open_pos %}
+<section class="card" aria-label="Open POs">
+  <div class="cap">POs still open in NetSuite <span class="tag warn">{{ x.open_pos|length }}</span><span class="more">the job is finished: close these in NetSuite</span></div>
+  <div class="cbody"><table class="tbl">
+    <thead><tr><th>PO</th><th>Supplier</th><th>Date</th><th>Status</th><th>Value</th></tr></thead>
+    <tbody>{% for t in x.open_pos %}<tr><td>{{ t['Doc #'] }}</td><td>{{ t['Party'] }}</td><td>{{ t['Date']|mdate }}</td><td>{{ t['Status'] }}</td><td class="num">{{ t['Amount']|money }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
+
+<details class="card docs">
+  <summary class="cap">Customer invoices <span class="tag">{{ x.invoices|length }}</span></summary>
+  <div class="cbody"><table class="tbl">
+    <thead><tr><th>Document</th><th>Customer</th><th>Customer PO</th><th>Date</th><th>Amount</th><th>Paid</th></tr></thead>
+    <tbody>{% for t in x.invoices %}<tr><td>{{ t['Type'] }} {{ t['Doc #'] }}</td><td>{{ t['Party'] }}</td><td>{{ t['PO / Order #'] or '' }}</td><td>{{ t['Date']|mdate }}</td>
+      <td class="num">{{ t['Amount']|money }}</td><td>{% if t['Paid Date'] %}{{ t['Paid Date']|mdate }}{% else %}<span class="neg">not paid</span>{% endif %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</details>
+
+<details class="card docs">
+  <summary class="cap">Supplier bills, expenses and stock <span class="tag">{{ x.costs_docs|length }}</span></summary>
+  <div class="cbody"><table class="tbl">
+    <thead><tr><th>Document</th><th>Supplier</th><th>PO</th><th>Date</th><th>Amount</th><th>Paid</th></tr></thead>
+    <tbody>{% for t in x.costs_docs %}<tr><td>{{ t['Type'] }} {{ t['Doc #'] }}</td><td>{{ t['Party'] }}</td><td>{{ t['PO / Order #'] or '' }}</td><td>{{ t['Date']|mdate }}</td>
+      <td class="num">{{ t['Amount']|money }}</td><td>{% if t['Paid Date'] %}{{ t['Paid Date']|mdate }}{% else %}not paid{% endif %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</details>
+
+<div class="foot"><b>Basis:</b> AUD ex GST, from NetSuite documents coded to {{ x.code }}. Gross margin = invoiced − costs billed, before BHF labour{% if x.nm is not none %} ({{ x.labour|money }} from the Projects sheet){% endif %}. Paid = NetSuite shows the document as paid.</div>
+{% endblock %}

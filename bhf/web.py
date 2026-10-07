@@ -86,7 +86,7 @@ def ctx(request, **kw):
             name = f"{model.MONTHS[int(r['month'][5:7]) - 1]} {r['month'][:4]}"
             by_month[name] = by_month.get(name, 0.0) + r["rev"]
     bv = model.budget_view(b, pf["views"], today, {k: pl.fy_remaining(x, fy, today) for k, x in pls.items()}, by_month)
-    return {"request": request, "pf": pf, "bv": bv, "pls": pls, "tabs": [(v["code"], v["name"]) for v in pf["views"]],
+    return {"request": request, "pf": pf, "bv": bv, "pls": pls, "tabs": [(v["code"], v["name"]) for v in pf["views"]], "n_complete": len(pf["complete"]),
             "user": request.session.get("user"), "demo": store.demo,
             "as_at": "demo data" if store.demo else (synced or "not synced yet"), **kw}
 
@@ -112,6 +112,34 @@ def project(request: Request, code: str):
     c["forecast_items"] = [f["Item"] for f in forecasts if f.get("Project") == code]
     c["err"] = request.query_params.get("err")
     return tpl.TemplateResponse(request, "project.html", c)
+
+
+def completed_rows(c) -> list[dict]:
+    projects, _, txns, _ = load()
+    rows = {p.get("Project"): p for p in projects}
+    return [model.completed_view(v, rows[v["code"]], txns) for v in c["pf"]["complete"]]
+
+
+@app.get("/completed", response_class=HTMLResponse)
+def completed(request: Request):
+    """Finished projects (Status = Complete): what each made, from NetSuite documents."""
+    if (r := auth.require(request)):
+        return r
+    c = ctx(request, active="completed")
+    c["rows"] = sorted(completed_rows(c), key=lambda r: r["last"] or "", reverse=True)
+    c["tot"] = model.completed_totals(c["rows"])
+    return tpl.TemplateResponse(request, "completed.html", c)
+
+
+@app.get("/completed/{code}", response_class=HTMLResponse)
+def completed_one(request: Request, code: str):
+    if (r := auth.require(request)):
+        return r
+    c = ctx(request, active="completed")
+    c["x"] = next((x for x in completed_rows(c) if x["code"] == code), None)
+    if not c["x"]:
+        return RedirectResponse("/completed")
+    return tpl.TemplateResponse(request, "completed_one.html", c)
 
 
 @app.post("/p/{code}/pl")

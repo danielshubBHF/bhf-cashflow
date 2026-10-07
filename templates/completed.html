@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Completed projects · Project Cashflow{% endblock %}
+{% block main %}
+<div class="pagebar">
+  <h2>Completed projects</h2>
+  <span class="by">{{ rows|length }} project{{ '' if rows|length == 1 else 's' }} · final figures from NetSuite documents · AUD ex GST</span>
+</div>
+
+<p class="headline">
+  Invoiced <b>{{ tot.invoiced|money }}</b> · costs <b>{{ tot.costs|money }}</b>
+  · gross margin <b>{{ tot.gm|money }}</b> {{ tot.gm_pct|pct }}
+  {% if tot.owed_to_us >= 0.5 %}· <span class="neg">still owed to us {{ tot.owed_to_us|money }}</span>{% endif %}
+  {% if tot.owed_by_us >= 0.5 %}· still to pay {{ tot.owed_by_us|money }}{% endif %}
+</p>
+
+<section class="card" aria-label="Completed projects">
+  <div class="cap">Completed projects <span class="tag">{{ rows|length }}</span><span class="more">click a project for its figures</span></div>
+  <div class="cbody">
+  <table class="tbl ptbl ctbl">
+    <thead><tr><th>Project</th><th>Dates<small>first – last document</small></th><th>Invoiced</th><th>Received<small>still owed</small></th>
+      <th>Costs billed</th><th>Paid<small>still to pay</small></th><th>Gross margin</th><th class="c">Open POs</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+    <tr>
+      <td><a href="/completed/{{ r.code }}"><b>{{ r.code }}</b> {{ r.name }}</a>{% if r.pm %}<small>{{ r.pm }}</small>{% endif %}</td>
+      <td>{{ r.first|mdate }} – {{ r.last|mdate }}</td>
+      <td class="num">{{ r.invoiced|money }}</td>
+      <td class="num">{{ r.received|money }}{% if r.owed_to_us >= 0.5 %}<small class="neg">{{ r.owed_to_us|money }} owed</small>{% endif %}</td>
+      <td class="num">{{ r.costs|money }}</td>
+      <td class="num">{{ r.paid|money }}{% if r.owed_by_us >= 0.5 %}<small>{{ r.owed_by_us|money }} to pay</small>{% endif %}</td>
+      <td class="num {{ 'neg' if r.gm < 0 }}"><b>{{ r.gm_pct|pct }}</b><small>{{ r.gm|money }}</small></td>
+      <td class="c">{% if r.open_pos %}<span class="pill warn">{{ r.open_pos|length }}</span>{% else %}<span class="muted">–</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    <tr class="tot"><td>All completed</td><td></td><td>{{ tot.invoiced|money }}</td><td>{{ tot.received|money }}</td><td>{{ tot.costs|money }}</td>
+      <td>{{ tot.paid|money }}</td><td>{{ tot.gm_pct|pct }}<small>{{ tot.gm|money }}</small></td><td></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<div class="foot"><b>Basis:</b> AUD ex GST, from NetSuite. Invoiced = customer invoices less credit notes; costs billed = supplier bills, expense claims, card charges and stock issued, less credits.
+  Gross margin = invoiced − costs billed (before BHF labour). Received / paid = documents NetSuite shows as paid. Open POs = POs still open in NetSuite on a finished job: close them out.
+  Projects set to <i>Complete</i> in the Projects sheet show here; <i>Closed</i> projects are left out of the app.</div>
+{% endblock %}

@@ -4,7 +4,7 @@
 {% set t = pf.totals %}{% set p = t.position %}{% set fyb = bv.fy if bv else pf.fy_now %}
 <div class="pagebar">
   <h2>All live projects</h2>
-  <span class="by">{{ pf.views|length }} live project{{ '' if pf.views|length == 1 else 's' }}{% if pf.complete %} · {{ pf.complete|length }} complete (financial years only){% endif %}</span>
+  <span class="by">{{ pf.views|length }} live project{{ '' if pf.views|length == 1 else 's' }}{% if pf.complete %} · <a href="/completed">{{ pf.complete|length }} completed</a>{% endif %}</span>
   {% if t.unfiled %}<span class="pill warn">{{ t.unfiled }} PDF{{ '' if t.unfiled == 1 else 's' }} not yet filed</span>{% endif %}
   {% if t.flags %}<span class="pill warn">{{ t.flags }} item{{ '' if t.flags == 1 else 's' }} need attention</span>{% endif %}
   <span class="pb-brk"></span>
@@ -89,7 +89,7 @@
     <h4 class="fy-sub">{{ f.fy }} to date by project</h4>
     <table class="tbl fyt fyproj">
       <thead><tr><th>Project</th><th>Received</th><th>Paid</th><th>Invoiced</th><th>Costs billed</th></tr></thead>
-      <tbody>{% for r in f.projects|sort(attribute='invoiced', reverse=True) %}<tr class="{{ 'sub' if r.status == 'Complete' }}"><td>{% if r.status != 'Complete' %}<a href="/p/{{ r.code }}">{{ r.code }}</a>{% else %}{{ r.code }}{% endif %} <small>{{ r.name }}{{ ' · complete' if r.status == 'Complete' }}</small></td>
+      <tbody>{% for r in f.projects|sort(attribute='invoiced', reverse=True) %}<tr class="{{ 'sub' if r.status == 'Complete' }}"><td><a href="{{ '/completed/' if r.status == 'Complete' else '/p/' }}{{ r.code }}">{{ r.code }}</a> <small>{{ r.name }}{{ ' · complete' if r.status == 'Complete' }}</small></td>
         <td class="num">{{ r.received|money }}</td><td class="num">{{ r.paid|money }}</td><td class="num">{{ r.invoiced|money }}</td><td class="num">{{ r.billed|money }}</td></tr>{% endfor %}</tbody>
     </table>
     {% endfor %}
