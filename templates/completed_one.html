@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ x.code }} {{ x.name }} · Completed · Project Cashflow{% endblock %}
+{% block boardcls %} scroll{% endblock %}
 {% block main %}
 <div class="pagebar">
   <h2>{{ x.code }} {{ x.name }}</h2>
@@ -30,8 +31,12 @@
     <div class="cbody">
     <table class="tbl">
       <thead><tr><th>Supplier</th><th>Billed</th><th>Share</th></tr></thead>
-      <tbody>{% for s in x.by_supplier %}<tr><td>{{ s.party }} <small>{{ s.docs }} doc{{ '' if s.docs == 1 else 's' }}</small></td><td class="num">{{ s.amount|money }}</td><td class="num">{{ s.amount|share(x.costs) }}</td></tr>{% endfor %}</tbody>
+      <tbody>{% for s in x.by_supplier[:12] %}<tr><td>{{ s.party }} <small>{{ s.docs }} doc{{ '' if s.docs == 1 else 's' }}</small></td><td class="num">{{ s.amount|money }}</td><td class="num">{{ s.amount|share(x.costs) }}</td></tr>{% endfor %}</tbody>
     </table>
+    {% if x.by_supplier|length > 12 %}{% set rest = x.by_supplier[12:] %}
+    <details class="more-sup"><summary>{{ rest|length }} more supplier{{ '' if rest|length == 1 else 's' }} · {{ rest|sum(attribute='amount')|money }}</summary>
+    <table class="tbl"><tbody>{% for s in rest %}<tr><td>{{ s.party }} <small>{{ s.docs }} doc{{ '' if s.docs == 1 else 's' }}</small></td><td class="num">{{ s.amount|money }}</td><td class="num">{{ s.amount|share(x.costs) }}</td></tr>{% endfor %}</tbody></table>
+    </details>{% endif %}
     </div>
   </section>
 </div>

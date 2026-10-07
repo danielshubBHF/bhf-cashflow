@@ -8,11 +8,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=2610i">
+<link rel="stylesheet" href="/static/style.css?v=2610j">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body{% if demo %} data-demo{% endif %}>
-<div class="board">
+<div class="board{% block boardcls %}{% endblock %}">
 <header class="top">
   <a href="/" aria-label="All live projects"><img class="brandlogo" src="{{ logo }}" alt="BHF Technologies"></a>
   <div class="ttl"><h1>Project Cashflow</h1><div class="sub">Live projects · AUD ex GST · actuals from NetSuite, forecasts from Smartsheet</div></div>
@@ -28,7 +28,7 @@
 {% block main %}{% endblock %}
 </div>
 {% block drawers %}{% endblock %}
-<script src="/static/dash.js?v=2610i"></script>
+<script src="/static/dash.js?v=2610j"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

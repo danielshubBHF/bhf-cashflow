@@ -861,3 +861,13 @@ details.card.docs>summary::before{content:"▸ ";color:var(--muted)} details.car
 details.card.docs .cbody{max-height:520px;overflow:auto}
 .ptabs a.ptab-done{margin-left:auto;opacity:.85}
 @media (max-width:900px){ .ckpis{grid-template-columns:1fr 1fr} .cgrid{grid-template-columns:1fr} }
+
+/* completed-project pages: an ordinary scrolling page, not fitted to one screen */
+html.js .board.scroll{height:auto;min-height:100vh}
+.board.scroll .card,.board.scroll details.card{flex:none}
+.board.scroll .cgrid{align-items:start}
+.board.scroll .cgrid .card .cbody{max-height:none;overflow:visible}
+.board.scroll .card>.cap{display:flex;align-items:center;gap:8px}
+.board.scroll .card>.cap .more{margin-left:auto}
+.more-sup{margin-top:6px} .more-sup>summary{cursor:pointer;color:var(--muted);font-size:12.5px;padding:4px 0}
+.more-sup table{margin-top:4px}
