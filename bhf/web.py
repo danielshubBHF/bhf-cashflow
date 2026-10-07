@@ -399,7 +399,8 @@ def pdf(request: Request, netsuite_id: str):
     from .smartsheet_db import Table
     T = Table(config.SHEETS["transactions"])
     atts = T.attachments(t["_id"])
-    att = next((a for a in atts if a.get("name") == t.get("PDF")), atts[0] if atts else None)
+    same = sorted([a for a in atts if a.get("name") == t.get("PDF")], key=lambda a: str(a.get("createdAt") or ""))
+    att = same[-1] if same else (atts[0] if atts else None)       # a re-rendered PDF keeps its name: newest wins
     if not att:
         return HTMLResponse("No PDF attached to that transaction.", 404)
     return RedirectResponse(T.attachment_url(att["id"]))

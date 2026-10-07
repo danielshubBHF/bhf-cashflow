@@ -20,13 +20,15 @@ def _load_env(path: Path = Path(__file__).resolve().parents[1] / ".env"):
 _load_env()
 
 SHEETS = {
-    "projects": int(os.getenv("SHEET_PROJECTS", "5296291610578820")),
-    "forecasts": int(os.getenv("SHEET_FORECASTS", "8457181382004612")),
-    "transactions": int(os.getenv("SHEET_TRANSACTIONS", "1918591890050948")),
-    "schedule": int(os.getenv("SHEET_SCHEDULE", "995388669775748")),
+    # 3. BHF Systems / 2. Contracted / 0. Cashflow Database (the former TEST copies, made official 08/10/26;
+    # the older sheets are in "0. Cashflow Database (old, Oct 26 - not used)")
+    "projects": int(os.getenv("SHEET_PROJECTS", "5467829114720132")),
+    "forecasts": int(os.getenv("SHEET_FORECASTS", "5868996240035716")),
+    "transactions": int(os.getenv("SHEET_TRANSACTIONS", "2843518197518212")),
+    "schedule": int(os.getenv("SHEET_SCHEDULE", "5136386488487812")),
 }
-SHEET_FLAGS = int(os.getenv("SHEET_FLAGS", "0") or 0)
-SHEET_PIPELINE = int(os.getenv("SHEET_PIPELINE", "0") or 0)       # your start month / split / probability per enquiry
+SHEET_FLAGS = int(os.getenv("SHEET_FLAGS", "6273607929122692") or 0)
+SHEET_PIPELINE = int(os.getenv("SHEET_PIPELINE", "1000909044928388") or 0)       # your start month / split / probability per enquiry
 SHEET_ENQUIRIES = int(os.getenv("SHEET_ENQUIRIES", "7290402377781124"))   # 1. Enquiries Pipeline Mastersheet (read only)     # "Flag Log": acknowledged "needs attention" items
 NS_ACCOUNT = os.getenv("NS_ACCOUNT", "5142660")
 NS_RESTLET_SCRIPT = os.getenv("NS_RESTLET_SCRIPT", "customscript_bhf_render_pdf")

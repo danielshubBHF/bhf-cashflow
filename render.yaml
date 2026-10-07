@@ -43,8 +43,8 @@ envVarGroups:
         sync: false
       - key: DASHBOARD_PASSWORD
         sync: false
-      # Which Smartsheet sheets to use. While testing: the "0. Cashflow Database (TEST)" copies.
-      # At switch-over: delete these four and the app uses the real sheets (defaults in bhf/config.py).
+      # Which Smartsheet sheets to use. Optional: the defaults in bhf/config.py are the "0. Cashflow Database" sheets.
+      # Only set these to point the app somewhere else (e.g. a copy for testing).
       - key: SHEET_PROJECTS
         sync: false
       - key: SHEET_FORECASTS

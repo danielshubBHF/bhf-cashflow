@@ -306,6 +306,34 @@ def attach_pdfs(T: Table, targets: list[tuple]) -> list[tuple[int, dict]]:
     return out
 
 
+def rerender_bills(dry: bool = False, project: str | None = None) -> list[str]:
+    """One-off, after NetSuite's bill print template changes: fetch each live job's bill printout again, attach it
+    under the same name (the dashboard opens the newest) and untick Filed, so
+    `python -m bhf.file_pdfs --replace-own` swaps the copy in SharePoint."""
+    ns = NetSuite()
+    P, T = Table(config.SHEETS["projects"]), Table(config.SHEETS["transactions"])
+    live = {p["Project"] for p in P.load() if p.get("Status") not in ("Closed", "Complete")}
+    rows = [t for t in T.load() if t.get("Type") == "Bill" and t.get("PDF") and t.get("NetSuite ID")
+            and t.get("Project") in live and (not project or t.get("Project") == project)]
+    done = []
+    for t in rows:
+        if dry:
+            done.append(f"{t['Project']} {t.get('Doc #')} -> {t['PDF']}")
+            continue
+        try:
+            got = ns.pdf(int(t["NetSuite ID"]))
+            if got:
+                T.attach(t["_id"], t["PDF"], got[1])
+                T.update([(t["_id"], {"Filed": False})])
+                done.append(f"{t['Project']} {t.get('Doc #')} -> {t['PDF']}")
+        except Exception as e:
+            log.warning("bill %s: %s", t.get("Doc #"), e)
+    for d in done:
+        log.info(d)
+    log.info("bills re-rendered: %d of %d%s", len(done), len(rows), " [dry run]" if dry else "")
+    return done
+
+
 def refetch_bills(dry: bool = False):
     """One-off: swap NetSuite's printout for the supplier's own invoice on bills already attached. A refreshed
     row gets Filed unticked so `python -m bhf.file_pdfs --replace-own` replaces the file it filed earlier."""
@@ -343,9 +371,13 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--refetch-bills", action="store_true", help="one-off: use suppliers' own invoices for bills")
+    ap.add_argument("--rerender-bills", action="store_true", help="one-off: fetch bill printouts again after a template change")
+    ap.add_argument("--project")
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     a = ap.parse_args()
-    if a.refetch_bills:
+    if a.rerender_bills:
+        rerender_bills(a.dry_run, a.project)
+    elif a.refetch_bills:
         refetch_bills(a.dry_run)
     else:
         from . import project_sheets               # LIVE sheets in Smartsheet; never fail the sync
