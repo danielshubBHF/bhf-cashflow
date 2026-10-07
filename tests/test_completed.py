@@ -38,3 +38,14 @@ def test_completed_pages_render():
     one = web.tpl.env.get_template("completed_one.html").render(x=x, **common)
     assert "Costs by supplier" in one and "POs still open in NetSuite" in one and "By financial year" in one
     assert one.count("<table") == 5
+
+
+def test_open_po_fully_billed_in_its_own_currency():
+    po = {"Doc #": "PO005570", "Type": "PO", "Amount": 163620.36, "Currency Amount": "US Dollar 107,240.00", "PO / Order #": "PO005570"}
+    bills = [{"Amount": a, "Currency Amount": f"US Dollar {u}"} for a, u in
+             ((53889.39, "32,172.00"), (49495.37, "32,172.00"), (48219.39, "32,172.00"), (15271.94, "10,724.00"))]
+    x = model.po_billing(po, bills)
+    assert x["fully_billed"] and x["unbilled"] == 0 and x["billed"] == 166876.09      # FX gain isn't an unbilled balance
+    y = model.po_billing({**po, "Currency Amount": "", "Amount": 1000}, [{"Amount": 400}])
+    assert not y["fully_billed"] and y["unbilled"] == 600
+    assert model.po_billing({"Amount": 4650.44}, [])["unbilled"] == 4650.44

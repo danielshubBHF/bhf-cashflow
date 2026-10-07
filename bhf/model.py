@@ -802,7 +802,8 @@ def completed_view(v: dict, p: dict, txns: list) -> dict:
             fys.append({"fy": fy, "invoiced": d.get("invoiced", 0.0), "billed": d.get("billed", 0.0),
                         "gm": round(d.get("invoiced", 0.0) - d.get("billed", 0.0), 2)})
     dates = [str(t.get("Date"))[:10] for t in docs if t.get("Date")]
-    open_pos = [t for t in pt if t.get("Type") == "PO" and str(t.get("Status") or "") not in DONE_STATUSES]
+    open_pos = [po_billing(o, [t for t in outs if norm(t.get("PO / Order #")) == norm(o.get("PO / Order #"))])
+                for o in pt if o.get("Type") == "PO" and str(o.get("Status") or "") not in DONE_STATUSES]
     return {
         "code": code, "name": v["name"], "pm": v["pm"], "contract": num(p.get("Contract Value")),
         "first": min(dates) if dates else None, "last": max(dates) if dates else None,
@@ -813,6 +814,29 @@ def completed_view(v: dict, p: dict, txns: list) -> dict:
         "nm_pct": (gm - labour) / invoiced if labour and invoiced else None,
         "fys": fys, "by_supplier": by_supplier, "invoices": ins, "costs_docs": outs, "open_pos": open_pos,
     }
+
+
+def fx_amount(t: dict) -> tuple[str, float] | None:
+    """'US Dollar 107,240.00' -> ('US Dollar', 107240.0); None for AUD documents."""
+    m = re.match(r"^(.*?)\s+(-?[\d,]+(?:\.\d+)?)$", str(t.get("Currency Amount") or "").strip())
+    return (m.group(1), float(m.group(2).replace(",", ""))) if m else None
+
+
+def po_billing(o: dict, bills: list) -> dict:
+    """How much of a PO has been billed. In the PO's own currency when it isn't AUD (so exchange-rate
+    movement doesn't look like an unbilled balance); the AUD remainder at the PO rate."""
+    value = num(o.get("Amount"))
+    billed_aud = round(sum(num(b.get("Amount")) for b in bills), 2)
+    po_fx, share = fx_amount(o), None
+    if po_fx and po_fx[1]:
+        same = [fx_amount(b) for b in bills]
+        if all(x and x[0] == po_fx[0] for x in same):
+            share = sum(x[1] for x in same) / po_fx[1]
+    if share is None:
+        share = billed_aud / value if value else 0.0
+    unbilled = round(max(0.0, value * (1 - share)), 2)
+    return {**o, "billed": billed_aud, "share": share, "unbilled": unbilled, "bills": len(bills),
+            "fully_billed": share >= 0.995}
 
 
 def completed_totals(rows: list) -> dict:

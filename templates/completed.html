@@ -30,7 +30,7 @@
       <td class="num">{{ r.costs|money }}</td>
       <td class="num">{{ r.paid|money }}{% if r.owed_by_us >= 0.5 %}<small>{{ r.owed_by_us|money }} to pay</small>{% endif %}</td>
       <td class="num {{ 'neg' if r.gm < 0 }}"><b>{{ r.gm_pct|pct }}</b><small>{{ r.gm|money }}</small></td>
-      <td class="c">{% if r.open_pos %}<span class="pill warn">{{ r.open_pos|length }}</span>{% else %}<span class="muted">–</span>{% endif %}</td>
+      <td class="c">{% if r.open_pos %}{% set unb = r.open_pos|rejectattr('fully_billed')|list %}<span class="pill warn" title="{{ unb|length }} with an unbilled balance">{{ r.open_pos|length }}</span>{% if unb %}<small>{{ unb|sum(attribute='unbilled')|money }} not billed</small>{% else %}<small>all billed</small>{% endif %}{% else %}<span class="muted">–</span>{% endif %}</td>
     </tr>
     {% endfor %}
     <tr class="tot"><td>All completed</td><td></td><td>{{ tot.invoiced|money }}</td><td>{{ tot.received|money }}</td><td>{{ tot.costs|money }}</td>
