@@ -65,6 +65,14 @@ def iso(nsdate):
     return dt.date(y, m, d).isoformat()
 
 
+def doc_no(d: dict) -> str:
+    """The document number; a bill entered without the supplier's invoice number gets 'no ref #{NetSuite ID}' so it
+    can still be told apart (its supplier and date are in their own columns)."""
+    t = str(d.get("tranid") or "").strip()
+    name = TYPE_NAMES.get(d["type"], d["type"])
+    return t if t and t.lower() != name.lower() else f"no ref #{d['id']}"
+
+
 def order_no(d: dict) -> str:
     if d["type"] in ORDER_TYPES:
         return d.get("tranid") or ""
@@ -196,7 +204,7 @@ def run(dry: bool = False):
                     notes.append(f"{code}: linked {order} ({d['party']}) to forecast '{fc}'")
             ccy = d.get("ccy") or ""
             row = {
-                "Doc #": d.get("tranid") or TYPE_NAMES.get(d["type"], d["type"]),
+                "Doc #": doc_no(d),
                 "Project": code, "Type": TYPE_NAMES.get(d["type"], d["type"]),
                 "Direction": "In" if d["type"] in INCOMING else "Out", "Party": d.get("party"),
                 "PO / Order #": order, "Date": iso(d.get("trandate")), "Due Date": iso(d.get("duedate")),

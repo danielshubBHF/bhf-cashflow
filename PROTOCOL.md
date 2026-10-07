@@ -104,7 +104,10 @@ These are agreed with accounts.
    - **Miscoded?** A line here isn't ordered yet, but a PO from the same supplier, within 25% of the amount, sits unlinked on another job.
    - **Not billed:** the PO is received in NetSuite, with no bill for 30 days. Chase the supplier invoice.
    - **Stale PO:** still open with nothing billed 90 days after it was due. Cancel it in NetSuite, or chase.
-   - **No PO on bill:** the bill wasn't raised from the PO, so the PO still shows open in NetSuite. Close the PO.
+   - **No PO on bill:** the bill wasn't raised from the PO, so the PO still shows open in NetSuite. Close PO in NS.
+   - **Close PO in NS:** the PO is billed in full (in its own currency, so FX differences don't count), or a bill raised without it from the same supplier matches it within 10%, but NetSuite still shows it open. The app already treats it as done (nothing still to pay on it); closing it in NetSuite is housekeeping.
+   - **Cost missing?** A cost line with no PO, bill or stock issue in NetSuite that is ticked Closed, past its date or undated, on a job that's at least 80% invoiced. The cost may never have been entered in NetSuite.
+   - **Untagged in NS:** a PO, bill or stock issue with no project in NetSuite that looks like this job's (its memo names the job, it quotes the same supplier quote number as a PO on the job, or the supplier has a line here still waiting for its order and the amount is within 50%). Tag it to the job in NetSuite.
    - **Customer PO:** an invoice with no customer PO number, or one no contract line lists.
    - **Shared account:** two live jobs use the same Unearned Income or WIP account, so the P&L can't split them.
    - Anything that's fine as it is: **Acknowledge** it, with an optional reason. It leaves the list and the counts, and is recorded in the Flag Log sheet. The reason is a note only; it doesn't change anything. An overrun comes back if it grows by more than 10% + $500. *N acknowledged* lists them, with *Restore*.
@@ -112,6 +115,7 @@ These are agreed with accounts.
 3. Tick **Closed** on any forecast line where spending is finished.
 
 ### Changes during the job
+- **Supplier back-charge (money a supplier owes us):** add an outgoing line with Type **Supplier recovery** and the amount owed. It reduces still to pay until the supplier's credit (or an offset bill) is linked to it.
 - **Customer variation:** add an incoming forecast row with the variation PO number, plus its milestones.
 - **New supplier package not in the costing:** add a forecast row. If the PO already exists, link it from Unassigned.
 - **Forecast changes:** edit the Amount. The dashboard shows the original-forecast marker against the actuals either way.

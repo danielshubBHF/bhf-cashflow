@@ -92,3 +92,11 @@ def test_auto_added_line_is_flagged_until_acknowledged():
     v = project_view(PROJECTS[0], FORECASTS + [extra], TXNS, SCHEDULE, "2026-10-13")
     [m] = [m for m in v["flag_meta"] if m["kind"] == "newvar"]
     assert "Variation - customer PO PO-0019" in m["text"] and "$48,000" in m["text"]
+
+
+def test_bill_without_supplier_reference_gets_a_distinct_number():
+    from bhf.sync import doc_no
+    assert doc_no({"type": "VendBill", "tranid": "WK20260307", "id": "1"}) == "WK20260307"
+    assert doc_no({"type": "VendBill", "tranid": "", "id": "327062"}) == "no ref #327062"
+    assert doc_no({"type": "VendBill", "tranid": "Bill", "id": "327063"}) == "no ref #327063"
+    assert doc_no({"type": "PurchOrd", "tranid": "PO005570", "id": "9"}) == "PO005570"

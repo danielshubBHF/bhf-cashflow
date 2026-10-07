@@ -2,7 +2,7 @@
 import datetime as dt
 
 COST_TYPES = ["Equipment", "Engineering / Design", "Freight & Logistics", "Install / Site Works", "Commissioning",
-              "Consumables & Chemicals", "Consultants", "Travel & Expenses", "Customer Milestone", "Variation", "Other"]
+              "Consumables & Chemicals", "Consultants", "Travel & Expenses", "Customer Milestone", "Variation", "Supplier recovery", "Other"]
 
 
 class Bad(ValueError):

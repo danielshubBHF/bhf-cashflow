@@ -21,12 +21,17 @@ def view(forecasts=(), txns=(), schedule=(), today=TODAY):
     return project_view(PROJECTS[0], FORECASTS + list(forecasts), TXNS + list(txns), SCHEDULE + list(schedule), today)
 
 
-def test_fixture_raises_only_the_real_stale_po():
+def test_fixture_raises_only_the_real_stale_pos():
     v = view()
     for k in ("wrong", "miscode", "received", "standalone", "custpo"):
         assert not kinds(v, k), k
-    [t] = kinds(v, "stale")                     # D2's variation PO: $27,425 unbilled since 30 Jun (true in NetSuite too)
-    assert t.startswith("PO006017 D2 Process") and "Cancel in NetSuite or chase?" in t
+    [c] = kinds(v, "closepo")                   # the fixture marks POs "Open": jar testing's is billed in full
+    assert c.startswith("PO005893") and "billed in full" in c
+    d2, bondalti = sorted(kinds(v, "stale"))    # both true in NetSuite too
+    assert d2.startswith("PO005725 Enkrott") or bondalti.startswith("PO005725 Enkrott")
+    stale = {t.split()[0]: t for t in kinds(v, "stale")}
+    assert "Close the PO in NetSuite, or chase?" in stale["PO006017"]       # $27,425 unbilled since 30 Jun
+    assert "nothing billed since 2026-02-13" in stale["PO005725"]           # pre-flattening engineering: no bill since Feb
 
 
 def test_wrong_project_po_listed_on_another_jobs_forecast():
@@ -61,15 +66,51 @@ def test_received_not_billed_and_stale_po():
     assert not kinds(view(txns=[rec, stale], today="2026-07-20"), "stale")        # within 90 days
 
 
-def test_standalone_bill_flags_the_po_once():
+def test_po_matched_by_a_standalone_bill_is_done_and_closed():
     po = txn(**{"Doc #": "PO007003", "Type": "PO", "PO / Order #": "PO007003", "Party": "Plumblux", "Status": "Pending Bill",
                 "Forecast": "Jar testing", "Amount": 1440})
     bill = txn(**{"Doc #": "114", "Type": "Bill", "PO / Order #": "", "Party": "Plumblux", "Forecast": "Jar testing",
                   "Amount": 1440, "NetSuite ID": "55"})
     v = view(txns=[po, bill])
-    [t] = kinds(v, "standalone")
-    assert "PO007003" in t and "114" in t
+    [t] = [x for x in kinds(v, "closepo") if "PO007003" in x]
+    assert "bill 114" in t and "Close PO in NS" in t
+    assert not kinds(v, "standalone")
     assert not any("PO007003" in t for t in kinds(v, "received") + kinds(v, "stale"))
+    jar = next(l for l in v["lines_out"] if l["item"] == "Jar testing")
+    assert not any(r["kind"] == "order" for r in v["ledger"]["out"] if r["line"] == "Jar testing")   # nothing still to pay on it
+
+
+def test_po_billed_in_full_in_its_currency_is_done():
+    po = txn(**{"Doc #": "PO007004", "Type": "PO", "PO / Order #": "PO007004", "Party": "Welkin", "Status": "Pending Bill",
+                "Forecast": "Jar testing", "Amount": 10000, "Currency Amount": "US Dollar 6,500.00"})
+    bill = txn(**{"Doc #": "WK1", "Type": "Bill", "PO / Order #": "PO007004", "Party": "Welkin", "Forecast": "Jar testing",
+                  "Amount": 10400, "Currency Amount": "US Dollar 6,500.00", "NetSuite ID": "56"})
+    [t] = [x for x in kinds(view(txns=[po, bill]), "closepo") if "PO007004" in x]
+    assert "billed in full" in t
+
+
+def test_cost_line_with_nothing_in_netsuite_on_a_mostly_invoiced_job():
+    line = {"Project": "BHF26001", "Item": "Avanale UF System", "Direction": "Out", "Party": "Avanale", "Amount": 25000,
+            "Expected Date": "2026-08-01", "Cost Type": "Equipment"}
+    assert not kinds(view([line]), "nocost")                      # fixture job isn't 80% invoiced
+    inv = txn(**{"Doc #": "INV99", "Type": "Invoice", "Direction": "In", "PO / Order #": "PO-0007", "Forecast": "Main contract",
+                 "Amount": 1300000})
+    [t] = kinds(view([line], [inv]), "nocost")
+    assert "Avanale UF System" in t and "Cost may be missing from NetSuite" in t
+
+
+def test_supplier_recovery_reduces_cost_until_credited():
+    from bhf.model import project_view
+    rec = {"Project": "BHF26001", "Item": "Welkin back-charge (Mifelec enclosure)", "Direction": "Out", "Party": "Welkin",
+           "Amount": 3597.40, "Cost Type": "Supplier recovery", "Expected Date": "2026-11-30"}
+    base = view()
+    v = view([rec])
+    assert round(base["position"]["out_tocome"] - v["position"]["out_tocome"], 2) == 3597.40
+    credit = txn(**{"Doc #": "VC1", "Type": "Bill Credit", "Party": "Welkin", "Forecast": rec["Item"], "Amount": -3597.40,
+                    "Paid Date": "2026-11-20", "NetSuite ID": "57"})
+    v2 = view([rec], [credit])
+    l = next(x for x in v2["lines_out"] if x["item"] == rec["Item"])
+    assert l["remaining"] == 0 and round(v2["position"]["out_tocome"], 2) == round(base["position"]["out_tocome"], 2)
 
 
 def test_customer_invoice_without_or_with_unknown_po():

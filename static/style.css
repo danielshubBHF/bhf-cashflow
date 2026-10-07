@@ -920,3 +920,6 @@ html.js .board.scroll{height:auto;min-height:100vh}
 .pipe-hidden small{color:var(--muted)}
 
 .bud-proj tr.pipe-row td{color:#96650f;background:var(--amber-bg)} .bud-proj tr.pipe-row a{color:inherit;font-weight:600}
+
+.pl-fys td small{display:block;font-size:11.5px;color:var(--muted)} .pl-fys td small.neg{color:var(--bad)}
+.att li.untagged::before,.att li.closepo::before{background:var(--amber)} .att li.nocost::before{background:var(--bad)}

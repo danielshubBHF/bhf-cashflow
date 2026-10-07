@@ -40,6 +40,26 @@
   </div>
 </section>
 
+{% set opens = [] %}{% for r in rows %}{% for o in r.open_pos %}{% set _ = opens.append((r, o)) %}{% endfor %}{% endfor %}
+{% if opens %}
+<section class="card" aria-label="Open POs on completed jobs" id="open-pos">
+  <div class="cap">Open POs on completed jobs <span class="tag warn">{{ opens|length }}</span><span class="more">for accounts: close these in NetSuite (or keep a genuine backorder)</span></div>
+  <div class="cbody"><table class="tbl">
+    <thead><tr><th>Job</th><th>PO</th><th>Supplier</th><th>Date</th><th>NetSuite status</th><th class="num">PO value</th><th class="num">Billed</th><th class="num">Not billed</th><th>What to do</th></tr></thead>
+    <tbody>{% for r, t in opens %}<tr><td><a href="/completed/{{ r.code }}">{{ r.code }}</a></td><td>{{ t['Doc #'] }}</td><td>{{ t['Party'] }}</td><td>{{ t['Date']|mdate }}</td><td>{{ t['Status'] }}</td>
+      <td class="num">{{ t['Amount']|money }}</td><td class="num">{{ (t.share * 100)|round|int }}%</td><td class="num {{ 'neg' if not t.fully_billed }}">{{ t.unbilled|money }}</td>
+      <td>{% if t.fully_billed %}Billed in full: close the PO{% elif t.bills %}Part billed: chase the rest, or close it{% else %}Nothing billed: close it, or keep if it's a live backorder{% endif %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
+{% set untag = [] %}{% for r in rows %}{% for u in r.untagged %}{% set _ = untag.append((r, u)) %}{% endfor %}{% endfor %}
+{% if untag %}
+<section class="card" aria-label="Untagged in NetSuite">
+  <div class="cap">Untagged in NetSuite <span class="tag warn">{{ untag|length }}</span><span class="more">documents with no project that look like they belong to a completed job</span></div>
+  <div class="cbody"><ul class="att">{% for r, u in untag %}<li class="untagged"><div><a href="/completed/{{ r.code }}"><b>{{ r.code }}</b></a> {{ u }}</div></li>{% endfor %}</ul></div>
+</section>
+{% endif %}
+
 <div class="foot"><b>Basis:</b> AUD ex GST, from NetSuite. Invoiced = customer invoices less credit notes; costs billed = supplier bills, expense claims, card charges and stock issued, less credits.
   Gross margin = invoiced − costs billed (before BHF labour). Received / paid = documents NetSuite shows as paid. Open POs = POs still open in NetSuite on a finished job: close them out.
   Projects set to <i>Complete</i> in the Projects sheet show here; <i>Closed</i> projects are left out of the app.</div>

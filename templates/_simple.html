@@ -144,7 +144,8 @@
 <section class="budget plc" id="pl" aria-label="P&L recognition">
   <div class="ct-head"><h3>P&amp;L recognition</h3>
     <span>{% if pl.flattened %}Flattened by the standard stages from <b>{{ pl.start_label }}</b>: revenue {{ pl.rev_main|money }}, cost {{ pl.cost_total|money }} (incl. BHF labour {{ pl.labour|money }}){% else %}At or under {{ pl.threshold|money }}: revenue when invoiced, cost when billed{% endif %}
-      · <a href="/p/{{ code }}/pl.csv">Download as spreadsheet</a></span></div>
+      · <a href="/p/{{ code }}/pl.csv">Download as spreadsheet</a>
+      · last flattening journal in NetSuite: {% if pl.last_journal %}<b class="{{ 'neg' if pl.journal_behind }}">{{ pl.last_journal|mdate }}</b>{% if pl.journal_behind %} <span class="neg">(last month's hasn't run)</span>{% endif %}{% else %}<b>none yet</b>{% endif %}</span></div>
   {% if pl.flattened %}
   <div class="pl-set">
     <div class="stg-list">{% for s in pl.stages %}<span><b>{{ s.name }}</b> {{ '%.0f'|format(s.pct * 100) }}% · {{ s.months }} month{{ '' if s.months == 1 else 's' }}</span>{% endfor %}</div>
@@ -164,10 +165,13 @@
   {% endif %}
   <table class="ct pl-fys">
     <thead><tr><th>Financial year</th><th class="n">Revenue: formula</th><th class="n">Locked baseline</th><th class="n">Moves vs baseline</th><th class="n">NetSuite actual</th>
-      <th class="n">Cost: formula</th><th class="n">NetSuite actual</th></tr></thead>
+      <th class="n">Cost: formula</th><th class="n">NetSuite actual</th><th class="n">Margin: formula</th><th class="n">Margin: NetSuite</th></tr></thead>
     <tbody>{% for f in pl.fys %}<tr><td><b>{{ f.fy }}</b></td><td class="n"><b>{{ f.rev|money }}</b></td><td class="n muted">{{ f.rev_base|money }}</td>
       <td class="n {{ 'neg' if f.move_rev < -0.5 else 'pos' if f.move_rev > 0.5 }}">{{ f.move_rev|signed if f.move_rev|abs >= 0.5 else '—' }}</td>
-      <td class="n">{{ f.rev_act|money if pl.has_actual else '—' }}</td><td class="n">{{ f.cost|money }}</td><td class="n">{{ f.cost_act|money if pl.has_actual else '—' }}</td></tr>{% endfor %}</tbody>
+      <td class="n">{{ f.rev_act|money if pl.has_actual else '—' }}</td><td class="n">{{ f.cost|money }}</td><td class="n">{{ f.cost_act|money if pl.has_actual else '—' }}</td>
+      {% set mf = f.rev - f.cost %}{% set ma = f.rev_act - f.cost_act %}
+      <td class="n {{ 'neg' if mf < -0.5 }}">{{ mf|money }}<small>{{ (mf / f.rev * 100)|round|int ~ '%' if f.rev > 0.5 else '' }}</small></td>
+      <td class="n {{ 'neg' if pl.has_actual and ma < -0.5 }}">{% if pl.has_actual %}<b>{{ ma|money }}</b><small>{{ (ma / f.rev_act * 100)|round|int ~ '%' if f.rev_act > 0.5 else 'no revenue' }}</small>{% if ma < -0.5 %}<small class="neg">cost recognised exceeds revenue</small>{% endif %}{% else %}—{% endif %}</td></tr>{% endfor %}</tbody>
   </table>
   <details class="pl-months" open><summary>Month by month: formula vs what NetSuite has journalled</summary>
     <table class="ct">

@@ -41,6 +41,13 @@
   </section>
 </div>
 
+{% if x.untagged %}
+<section class="card" aria-label="Untagged in NetSuite">
+  <div class="cap">Untagged in NetSuite <span class="tag warn">{{ x.untagged|length }}</span></div>
+  <div class="cbody"><ul class="att">{% for u in x.untagged %}<li class="untagged"><div>{{ u }}</div></li>{% endfor %}</ul></div>
+</section>
+{% endif %}
+
 {% if x.open_pos %}
 <section class="card" aria-label="Open POs">
   <div class="cap">POs still open in NetSuite <span class="tag warn">{{ x.open_pos|length }}</span><span class="more">the job is finished: close these in NetSuite</span></div>
@@ -50,7 +57,7 @@
       <td class="num">{{ t['Amount']|money }}{% if t['Currency Amount'] %}<small>{{ t['Currency Amount'] }}</small>{% endif %}</td>
       <td class="num">{{ t.billed|money }}<small>{{ t.bills }} bill{{ '' if t.bills == 1 else 's' }} · {{ (t.share * 100)|round|int }}%</small></td>
       <td class="num {{ 'neg' if not t.fully_billed }}">{{ t.unbilled|money }}</td>
-      <td>{% if t.fully_billed %}Fully billed and paid: just close the PO in NetSuite{% elif t.bills %}Part billed: chase the rest or close the PO{% else %}Nothing billed: cancel the PO, or chase the supplier{% endif %}</td></tr>{% endfor %}</tbody>
+      <td>{% if t.fully_billed %}Fully billed and paid: just close the PO in NetSuite{% elif t.bills %}Part billed: chase the rest or close the PO{% else %}Nothing billed: close the PO in NetSuite, or chase the supplier{% endif %}</td></tr>{% endfor %}</tbody>
   </table>
   <p class="what">NetSuite keeps a PO open until its items are received, even when the bills for it are all in. “Billed” compares the bills raised from the PO with its value, in the PO's own currency for foreign POs.</p></div>
 </section>

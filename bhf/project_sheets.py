@@ -137,8 +137,8 @@ def layout(v: dict, as_at: str, problems: list | None = None) -> list[dict]:
             for r in g["rows"]:
                 doc = r.get("doc") or {}
                 ref, label = doc.get("Doc #") or "", r["label"]
-                if doc and ref == doc.get("Type"):                  # a bill entered without a supplier invoice number
-                    ref, label = "", f"{doc.get('Type')} (no number)"
+                if doc and (ref == doc.get("Type") or ref.startswith("no ref #")):   # no supplier invoice number
+                    ref, label = ref if ref.startswith("no ref") else "", f"{doc.get('Type')} (no supplier ref)"
                 line["children"].append({"cells": {
                     "Item": label, "Party": l["party"] if side == "in" else r["party"],   # invoices name the job, not the customer
                     "Status": KIND[side].get(r["kind"], r["kind"]), "Ref": ref, "Date": r["date"],

@@ -3,6 +3,8 @@ import base64
 import os
 from collections import defaultdict
 
+import time
+
 import requests
 from requests_oauthlib import OAuth1
 
@@ -29,9 +31,13 @@ class NetSuite:
     def query(self, q: str) -> list[dict]:
         out, offset = [], 0
         while True:
-            r = requests.post(f"{self.base}/services/rest/query/v1/suiteql", auth=self.auth,
-                              json={"q": q}, params={"limit": 1000, "offset": offset},
-                              headers={"Prefer": "transient"}, timeout=90)
+            for wait in (1, 2, 4, 8, 0):                     # NetSuite allows only a few requests at once: back off on 429
+                r = requests.post(f"{self.base}/services/rest/query/v1/suiteql", auth=self.auth,
+                                  json={"q": q}, params={"limit": 1000, "offset": offset},
+                                  headers={"Prefer": "transient"}, timeout=90)
+                if r.status_code != 429 or not wait:
+                    break
+                time.sleep(wait)
             r.raise_for_status()
             b = r.json()
             out += b.get("items", [])
@@ -84,6 +90,53 @@ class NetSuite:
             doc = int(r["doc"])
             if doc not in out or dmy(d) > dmy(out[doc]):          # fully paid on the latest payment
                 out[doc] = d
+        return out
+
+    def untagged(self, job_ids: list, since: str) -> list[dict]:
+        """POs, bills and stock issues since `since` with no project (no Project field, no customer:job on a line),
+        with the memo text the matching needs. Most are consumables purchases; the model keeps only likely job costs."""
+        jobs = ",".join(str(int(float(j))) for j in job_ids if j)
+        if not jobs:
+            return []
+        rows = self.query(f"""
+            SELECT t.id, t.type, t.tranid, t.trandate, BUILTIN.DF(t.entity) AS vendor, BUILTIN.DF(t.status) AS status,
+                   BUILTIN.DF(t.currency) AS ccy, t.memo, MAX(tl.memo) AS linememo,
+                   ROUND(SUM(tl.netamount * t.exchangerate), 2) AS aud, ROUND(SUM(tl.foreignamount), 2) AS fx
+            FROM transaction t
+            JOIN transactionline tl ON tl.transaction = t.id AND tl.mainline = 'F' AND tl.taxline = 'F'
+            WHERE t.type IN ('PurchOrd', 'VendBill', 'InvAdjst') AND t.trandate >= TO_DATE('{since}', 'YYYY-MM-DD')
+              AND t.custbody_project IS NULL
+              AND NOT EXISTS (SELECT 1 FROM transactionline x WHERE x.transaction = t.id AND x.entity IN ({jobs}))
+            GROUP BY t.id, t.type, t.tranid, t.trandate, BUILTIN.DF(t.entity), BUILTIN.DF(t.status), BUILTIN.DF(t.currency), t.memo""")
+        for r in rows:
+            r["status"] = str(r.get("status") or "").split(" : ")[-1]
+            r["aud"] = abs(float(r.get("aud") or 0))
+        return rows
+
+    def job_quotes(self, job_ids: list) -> list[dict]:
+        """Memos of the POs tagged to these jobs: [{'job': id, 'vendor': name, 'memo': text}] (for quote-number matches)."""
+        jobs = ",".join(str(int(float(j))) for j in job_ids if j)
+        if not jobs:
+            return []
+        return self.query(f"""
+            SELECT t.custbody_project AS job, BUILTIN.DF(t.entity) AS vendor, t.memo
+            FROM transaction t
+            WHERE t.type = 'PurchOrd' AND t.custbody_project IN ({jobs}) AND t.memo IS NOT NULL""")
+
+    def last_journals(self, accounts: dict) -> dict:
+        """{code: latest Journal date (d/m/yyyy) posting to the project's Unearned or WIP account}."""
+        ids = {str(int(float(a))): c for c, accts in accounts.items() for a in accts if a}
+        if not ids:
+            return {}
+        out = {}
+        for r in self.query(f"""
+            SELECT tal.account AS acct, MAX(t.trandate) AS last
+            FROM transactionaccountingline tal JOIN transaction t ON t.id = tal.transaction
+            WHERE tal.posting = 'T' AND t.type = 'Journal' AND tal.account IN ({",".join(ids)})
+            GROUP BY tal.account"""):
+            c = ids.get(str(r["acct"]))
+            if c and (c not in out or dmy(r["last"]) > dmy(out[c])):
+                out[c] = r["last"]
         return out
 
     def part_paid(self, ids: list[int]) -> dict[int, tuple[float, str]]:

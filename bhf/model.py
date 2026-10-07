@@ -125,12 +125,35 @@ def bucket(f: dict,linked: list[dict], schedule: list[dict], today: str) -> dict
     docs = [t for t in linked if t.get("Type") not in ORDER_TYPES]
     budget = num(f.get("Amount"))
     billed = sum(num(d["Amount"]) for d in docs)
+    if f.get("Cost Type") == RECOVERY and f.get("Direction") != "In":
+        return recovery(f, linked, docs, budget, billed, today)
     paid = sum(paid_so_far(d) for d in docs)
     pos = {norm(o.get("PO / Order #")) for o in orders} | set(norm(x) for x in re.split(r"[,;\s]+", str(f.get("PO / Order #") or "")) if x)
     ms = sorted([s for s in schedule if norm(s.get("PO / Order #")) in pos], key=lambda s: (str(s.get("PO / Order #")), num(s.get("Seq"))))
 
     # A PO closed (or fully billed) in NetSuite won't be billed any further: it is worth what was billed on it.
     shut = {norm(o.get("PO / Order #")) for o in orders if str(o.get("Status") or "") in DONE_STATUSES}
+    # Also done, though NetSuite still shows it open: billed to 95%+ of its value (in the PO's own currency, so FX
+    # differences don't count), or a bill raised without the PO, from the same supplier, within 10% of its value.
+    # It carries no open commitment; the PM is asked to close it in NetSuite.
+    done_open, matched = [], set()
+    no_po_bills = [d for d in docs if not norm(d.get("PO / Order #")) and d.get("Type") == "Bill"]
+    for o in orders:
+        ref = norm(o.get("PO / Order #"))
+        if not ref or ref in shut or f.get("Direction") == "In":
+            continue
+        on_po = [d for d in docs if norm(d.get("PO / Order #")) == ref]
+        if on_po and po_billing(o, on_po)["share"] >= 0.95:
+            shut.add(ref)
+            done_open.append((o, "billed"))
+            continue
+        val = num(o.get("Amount"))
+        hit = next((d for d in no_po_bills if id(d) not in matched and party_key(d.get("Party")) == party_key(o.get("Party"))
+                    and val and abs(num(d.get("Amount")) - val) <= 0.1 * val), None)
+        if hit:
+            matched.add(id(hit))
+            shut.add(ref)
+            done_open.append((o, hit))
     live = [o for o in orders if norm(o.get("PO / Order #")) not in shut]
     billed_shut = sum(num(d["Amount"]) for d in docs if norm(d.get("PO / Order #")) in shut)
     if f.get("Direction") == "In":
@@ -138,6 +161,10 @@ def bucket(f: dict,linked: list[dict], schedule: list[dict], today: str) -> dict
     else:
         face = sum(num(o["Amount"]) for o in live)
     committed = face + billed_shut                      # PO value at the PO rate
+    # A PO done though still open in NetSuite still covers its whole value (an FX gain isn't "forecast, not ordered").
+    for o, why in done_open:
+        on_po = sum(num(d["Amount"]) for d in docs if norm(d.get("PO / Order #")) == norm(o.get("PO / Order #")))
+        committed += max(0.0, num(o.get("Amount")) - (on_po if why == "billed" else num(why.get("Amount"))))
 
     # Open commitment: unbilled milestones at the PO rate when we have a schedule (so FX gains/losses on
     # billed milestones are kept, not absorbed); otherwise PO value less what's been billed.
@@ -146,7 +173,7 @@ def bucket(f: dict,linked: list[dict], schedule: list[dict], today: str) -> dict
     open_commit = sum(num(m.get("Amount")) for m in ms_live if not m.get("Billed Doc"))
     unsched = [o for o in live if norm(o.get("PO / Order #")) not in sched_orders]
     # Bills with no PO number (raised standalone instead of from the PO) still use up the line's open POs.
-    no_po = sum(num(d["Amount"]) for d in docs if not norm(d.get("PO / Order #")))
+    no_po = sum(num(d["Amount"]) for d in docs if not norm(d.get("PO / Order #")) and id(d) not in matched)
     if unsched or not ms_live:
         on_po = [d for d in docs if norm(d.get("PO / Order #")) and norm(d.get("PO / Order #")) not in sched_orders | shut]
         base = sum(num(o["Amount"]) for o in unsched) if ms_live else face
@@ -183,9 +210,27 @@ def bucket(f: dict,linked: list[dict], schedule: list[dict], today: str) -> dict
         "open_commit": open_commit, "overrun": expected - budget if budget else 0.0,
         "date": f.get("Expected Date"), "closed": bool(f.get("Closed")), "orders": sorted(pos - {""}),
         "notes": f.get("Notes") or "", "txns": sorted(linked, key=lambda t: str(t.get("Date") or "")),
-        "milestones": ms,
+        "milestones": ms, "done_open": done_open,
         "late": bool(f.get("Expected Date") and str(f["Expected Date"]) < today and not committed and not billed),
     }
+
+
+RECOVERY = "Supplier recovery"
+
+
+def recovery(f: dict, linked: list, docs: list, budget: float, billed: float, today: str) -> dict:
+    """Money a supplier owes us (a back-charge): the forecast is what we expect back; a credit (or offset bill)
+    linked to the line recovers it. It reduces the cost side: expected = -(amount); still to come is negative."""
+    owed = abs(budget)
+    got = max(0.0, -billed)                                    # credits are negative amounts
+    left = 0.0 if f.get("Closed") else max(0.0, owed - got)
+    return {"id": f.get("_id"), "f": f, "bases": {}, "pct_gaps": [], "refs": [x.strip() for x in str(f.get("PO / Order #") or "").split(",") if x.strip()],
+            "item": f.get("Item"), "direction": f.get("Direction") or "Out", "type": RECOVERY, "party": f.get("Party") or "",
+            "budget": -owed, "committed": 0.0, "billed": billed, "paid": sum(paid_so_far(d) for d in docs),
+            "expected": -(got + left), "remaining": -left, "fx": 0.0, "bill_diff": 0.0, "foreign": [], "open_commit": 0.0,
+            "overrun": 0.0, "date": f.get("Expected Date"), "closed": bool(f.get("Closed")), "orders": [],
+            "notes": f.get("Notes") or "", "txns": sorted(linked, key=lambda t: str(t.get("Date") or "")), "milestones": [],
+            "done_open": [], "recovery": True, "late": False}
 
 
 STATUS = (("ordered", "Ordered"), ("to_place", "Still to place"), ("closed", "Closed"), ("unlinked", "Not linked to a line"))
@@ -248,6 +293,68 @@ BILL_TYPES = {"Bill", "Bill Credit", "Card"}
 _SUFFIX = re.compile(r"\b(pty|ltd|limited|co|company|inc|llc|gmbh|sa|lda|australia|aust)\b\.?", re.I)
 
 
+def add_days(d: str, n: int) -> str:
+    return (dt.date.fromisoformat(d[:10]) + dt.timedelta(days=n)).isoformat()
+
+
+def nsdate(d) -> str | None:
+    """NetSuite's d/m/yyyy -> ISO."""
+    try:
+        dd, mm, yy = (int(x) for x in str(d).split("/"))
+        return dt.date(yy, mm, dd).isoformat()
+    except (TypeError, ValueError):
+        return None
+
+
+QUOTE = re.compile(r"\bQ[-\s]?\d{2,6}\b", re.I)
+
+
+def untagged_flags(views: list, projects: list, untagged: list, quotes: list) -> dict:
+    """NetSuite POs, bills and stock issues with no project that look like they belong to one of our jobs:
+      memo names the job's code; or the same supplier quote number as a PO tagged to the job; or (live jobs) the
+      supplier has a cost line still waiting for its order and the amount is within 50% of it.
+    Returns {code: [(text, key)]}; each document goes to one job at most."""
+    by_code = {v["code"]: v for v in views}
+    job_code = {str(int(float(p["NetSuite Job ID"]))): p["Project"] for p in projects if p.get("NetSuite Job ID")}
+    quoted = defaultdict(set)                                    # (code, vendor key) -> quote numbers on tagged POs
+    for q in quotes or []:
+        c = job_code.get(str(q.get("job")))
+        for m in QUOTE.findall(str(q.get("memo") or "")):
+            quoted[(c, party_key(q.get("vendor")))].add(norm(m))
+    out = defaultdict(list)
+    for d in untagged or []:
+        if d.get("type") == "PurchOrd" and d.get("status") in DONE_STATUSES:
+            continue
+        text = f"{d.get('memo') or ''} {d.get('linememo') or ''}".upper()
+        vk, amt = party_key(d.get("vendor")), float(d.get("aud") or 0)
+        code, why = None, ""
+        for c in job_code.values():
+            if re.search(rf"\b{c}\b", text.replace(" ", "")) or c in text.replace(" ", ""):
+                code, why = c, f"its memo names {c}"
+                break
+        if not code:
+            qs = {norm(m) for m in QUOTE.findall(text)}
+            code = next((c for (c, v), refs in quoted.items() if v == vk and qs & refs), None)
+            why = f"it quotes the same supplier quote ({', '.join(sorted(qs))}) as a {d.get('vendor')} PO on {code}" if code else ""
+        if not code and vk and d.get("type") != "InvAdjst":
+            for v in views:
+                for l in v["lines_out"]:
+                    if (not l.get("unassigned") and not l["closed"] and l["remaining"] > 1 and l["f"].get("Party")
+                            and party_key(l["f"]["Party"]) and (party_key(l["f"]["Party"]) in vk or vk in party_key(l["f"]["Party"]))
+                            and abs(amt - l["remaining"]) <= 0.5 * l["remaining"]):
+                        code, why = v["code"], f"{d.get('vendor')} has “{l['item']}” ({money(l['remaining'])}) still to order here"
+                        break
+                if code:
+                    break
+        if code:
+            kind = {"PurchOrd": "PO", "VendBill": "Bill", "InvAdjst": "Stock issue"}.get(d.get("type"), d.get("type"))
+            fx = f" ({d.get('ccy')} {float(d.get('fx') or 0):,.0f})" if d.get("ccy") and d.get("ccy") != "Australian Dollar" else ""
+            out[code].append((f"{kind} {d.get('tranid')} {d.get('vendor') or ''} {money(amt)}{fx} of {nsdate(d.get('trandate')) or ''} "
+                              f"has no project in NetSuite, but {why}. Tag it to {code} in NetSuite so it counts here.",
+                              str(d.get("id"))))
+    return out
+
+
 def days(d, today: str) -> int | None:
     try:
         return (dt.date.fromisoformat(today[:10]) - dt.date.fromisoformat(str(d)[:10])).days
@@ -269,13 +376,16 @@ def money(x: float) -> str:
     return f"${x:,.0f}"
 
 
-def housekeeping(code: str, lines: list, pt: list, forecasts: list, txns: list, today: str) -> list[tuple]:
+def housekeeping(code: str, lines: list, pt: list, forecasts: list, txns: list, today: str,
+                 invoiced_share: float = 0.0) -> list[tuple]:
     """Bookkeeping checks from the brief (section 3). Returns (kind, text, key) tuples.
       wrong      a PO / customer PO coded to this project that another project's forecast lists
       miscode    a line still to place here, while a PO from that supplier of about that size sits unlinked on another job
       received   PO received in NetSuite, no bill for RECEIPT_DAYS
       stale      PO still open with nothing billed STALE_DAYS after it was due
       standalone a bill not raised from the PO, so the PO still shows open in NetSuite
+      closepo    a PO billed in full (or matched by a bill raised without it) that NetSuite still shows open
+      nocost     a cost line past its date with nothing in NetSuite, on a job that's mostly invoiced
       custpo     a customer invoice with no customer PO number, or one no contract line lists"""
     out = []
     others = [f for f in forecasts if f.get("Project") and f.get("Project") != code]
@@ -314,19 +424,36 @@ def housekeeping(code: str, lines: list, pt: list, forecasts: list, txns: list, 
                                        f"{t.get('Project')} and not on its forecast. Coded to the wrong job?",
                             t.get("NetSuite ID") or t.get("Doc #")))
 
-    # standalone bills: raised without the PO, so the PO stays open in NetSuite
+    # POs the model treats as done although NetSuite still shows them open: ask for them to be closed
     standalone = set()
     for l in lines:
+        for o, why in l.get("done_open", []):
+            ref = norm(o.get("PO / Order #"))
+            standalone.add(ref)
+            if not o.get("Status"):                     # NetSuite status unknown: nothing to close
+                continue
+            if why == "billed":
+                out.append(("closepo", f"{o.get('Doc #')} {o.get('Party')} is billed in full but still {o.get('Status') or 'open'} "
+                                       f"in NetSuite. Close PO in NS (it isn't counted as still to pay).", ref))
+            else:
+                out.append(("closepo", f"{o.get('Doc #')} {o.get('Party')} was billed without the PO (bill {why.get('Doc #')}, "
+                                       f"{money(num(why.get('Amount')))}), so NetSuite still shows it open. Close PO in NS "
+                                       f"(it isn't counted as still to pay).", ref))
+
+    # standalone bills: raised without the PO, so the PO stays open in NetSuite
+    for l in lines:
         live = [o for o in l["txns"] if o.get("Type") == "PO" and str(o.get("Status") or "") not in DONE_STATUSES]
+        live = [o for o in live if norm(o.get("PO / Order #")) not in standalone]
         if l.get("unassigned") or not live:
             continue
+        matched = {id(w) for _, w in l.get("done_open", []) if isinstance(w, dict)}
         for b in l["txns"]:
-            if b.get("Type") == "Bill" and not norm(b.get("PO / Order #")):
+            if b.get("Type") == "Bill" and not norm(b.get("PO / Order #")) and id(b) not in matched:
                 same = [o for o in live if party_key(o.get("Party")) == party_key(b.get("Party"))] or live
                 standalone |= {norm(o.get("PO / Order #")) for o in same}
                 pos = ", ".join(str(o.get("Doc #")) for o in same)
                 out.append(("standalone", f"Bill {b.get('Doc #')} {b.get('Party')} ({money(num(b.get('Amount')))}) wasn't raised "
-                                          f"from {pos}, so the PO still shows open in NetSuite. Close it, or bill from the PO next time.",
+                                          f"from {pos}, so the PO still shows open in NetSuite. Close PO in NS, or bill from the PO next time.",
                             b.get("NetSuite ID") or b.get("Doc #")))
 
     # open POs: received but not billed, or stale (a PO with a standalone bill is already flagged above)
@@ -353,9 +480,22 @@ def housekeeping(code: str, lines: list, pt: list, forecasts: list, txns: list, 
                 out.append(("received", f"{what}: received in NetSuite but {money(unbilled)} not billed. Chase the supplier invoice?", ref))
             continue
         since = max(last_bill, due_of.get(ref, ""), str(o.get("Date") or "")[:10])
-        if (days(since, today) or 0) > STALE_DAYS:
+        quiet = max(last_bill, str(o.get("Date") or "")[:10])         # nothing billed for 6 months, whatever the dates say
+        if (days(since, today) or 0) > STALE_DAYS or (not bills and (days(quiet, today) or 0) > 2 * STALE_DAYS):
+            since = since if (days(since, today) or 0) > STALE_DAYS else quiet
             done = "nothing billed" if not bills else f"{money(unbilled)} still unbilled"
-            out.append(("stale", f"{what}: open with {done} since {since}. Cancel in NetSuite or chase?", ref))
+            out.append(("stale", f"{what}: open with {done} since {since}. Close the PO in NetSuite, or chase?", ref))
+
+    # a cost line due by now with nothing at all in NetSuite, on a job that's mostly invoiced: cost may be missing
+    if invoiced_share >= 0.8:
+        for l in lines:
+            if (l["direction"] == "Out" and not l.get("unassigned") and not l.get("recovery") and not l["txns"]
+                    and l["budget"] > 0 and (l["closed"] or not l["date"] or str(l["date"])[:10] < today)):
+                out.append(("nocost", f"“{l['item']}” ({money(l['budget'])}) has no PO, bill or stock issue in NetSuite"
+                                      + (" but is ticked Closed" if l["closed"] else f" and was due {str(l['date'])[:10]}" if l["date"]
+                                         else " and has no expected date")
+                                      + f", and the job is {invoiced_share * 100:.0f}% invoiced. Cost may be missing from NetSuite.",
+                            l["item"]))
 
     # customer invoices: missing or unknown customer PO number
     mine = set()
@@ -464,7 +604,7 @@ def project_view(p: dict, forecasts: list, txns: list, schedule: list, today: st
             continue
         side = "in" if t.get("Direction") == "In" else "out"
         l = line_of.get(id(t))
-        ms = next((m for m in (l["milestones"] if l else []) if m.get("Billed Doc") and m.get("Billed Doc") == t.get("Doc #")), None)
+        ms = next((m for m in (l["milestones"] if l else []) if m.get("Billed Doc") and str(m.get("Billed Doc")) in (str(t.get("Doc #")), str(t.get("NetSuite ID")))), None)
         label = f"{ms.get('Milestone')}" if ms else f"{t.get('Type')} {t.get('Doc #')}"
         if t.get("Paid Date"):
             row(side, l, "paid", t["Paid Date"], num(t["Amount"]), label, t.get("Party"), t, done=True)
@@ -487,6 +627,8 @@ def project_view(p: dict, forecasts: list, txns: list, schedule: list, today: st
             row(side, l, "order", l["date"], open_amt, "Balance on order, not billed" if side == "out" else "Contract, not invoiced", None)
         if l["remaining"] > 0.005:
             row(side, l, "forecast", l["date"], l["remaining"], "Forecast, not ordered yet", None)
+        elif l.get("recovery") and l["remaining"] < -0.005:
+            row(side, l, "forecast", l["date"], l["remaining"], "Owed back by the supplier", None)
     for side in ledger:
         ledger[side].sort(key=lambda r: (not r["done"], r["date"] or "9999", r["line"]))
 
@@ -545,7 +687,8 @@ def project_view(p: dict, forecasts: list, txns: list, schedule: list, today: st
             owed, part = num(t.get("Amount")) - num(t.get("Part Paid")), num(t.get("Part Paid"))
             flag("overdue", f"Invoice {t.get('Doc #')} ${owed:,.0f} overdue since {t['Due Date']}"
                             + (f" (${part:,.0f} of ${num(t.get('Amount')):,.0f} received)" if part else ""), None, t.get("Doc #"))
-    for kind, text, key in housekeeping(code, lines, pt, forecasts, txns, today):
+    inv_share = rev["billed"] / contract if contract else 0.0
+    for kind, text, key in housekeeping(code, lines, pt, forecasts, txns, today, inv_share):
         flag(kind, text, None, key)
 
     by_type = defaultdict(float)
@@ -828,6 +971,7 @@ def completed_view(v: dict, p: dict, txns: list) -> dict:
         "labour": labour, "nm": round(gm - labour, 2) if labour else None,
         "nm_pct": (gm - labour) / invoiced if labour and invoiced else None,
         "fys": fys, "by_supplier": by_supplier, "invoices": ins, "costs_docs": outs, "open_pos": open_pos,
+        "untagged": [t for k, t, _ in v["flags"] if k == "untagged"],
     }
 
 

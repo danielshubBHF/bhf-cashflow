@@ -51,7 +51,8 @@
     {% for kind, text, t in v.flags %}{% set m = v.flag_meta[loop.index0] %}
       <li class="{{ kind }}"><div><span class="k">{{ {'link': 'Unlinked', 'late': 'Late', 'over': 'Over', 'terms': 'Terms', 'overdue': 'Overdue',
           'wrong': 'Wrong project?', 'miscode': 'Miscoded?', 'stale': 'Stale PO', 'received': 'Not billed', 'standalone': 'No PO on bill',
-          'custpo': 'Customer PO', 'shared': 'Shared account', 'newvar': 'New variation'}.get(kind, kind) }}</span>{{ text }}
+          'custpo': 'Customer PO', 'shared': 'Shared account', 'newvar': 'New variation',
+          'closepo': 'Close PO in NS', 'nocost': 'Cost missing?', 'untagged': 'Untagged in NS'}.get(kind, kind) }}</span>{{ text }}
         {% if kind == 'terms' and m.po %}
         <form method="post" action="/p/{{ v.code }}/terms" class="ackform termsform">
           <input type="hidden" name="po" value="{{ m.po }}">

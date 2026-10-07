@@ -65,7 +65,7 @@ def pie(values) -> str:
 
 
 LOGO = (ROOT / "static" / "logo-datauri.txt").read_text(encoding="utf-8").strip()      # BHF logo, inlined once
-ASSET_V = "2610p"          # bump when static/*.css or *.js change, so browsers fetch the new file
+ASSET_V = "2610q"          # bump when static/*.css or *.js change, so browsers fetch the new file
 tpl.env.globals.update(asset_v=ASSET_V, fy_start=model.fy_start, norm=model.norm, cost_types=editor.COST_TYPES, pal=PAL, pie=pie, logo=LOGO,
                         today=lambda: dt.date.today().isoformat())
 app.include_router(auth.router)
@@ -93,6 +93,13 @@ def last_synced(txns) -> str:
 def ctx(request, **kw):
     projects, forecasts, txns, sched = load()
     pf = model.portfolio(projects, forecasts, txns, sched)
+    b0 = store.budget()
+    if b0 and b0.get("untagged"):
+        for code, items in model.untagged_flags(pf["views"] + pf["complete"], projects, b0["untagged"], b0.get("quotes")).items():
+            v = next((x for x in pf["views"] + pf["complete"] if x["code"] == code), None)
+            for text, key in items:
+                v["flags"].append(("untagged", text, None))
+                v["flag_meta"].append({"key": f"untagged:{key}", "kind": "untagged", "text": text, "amount": None, "po": None})
     pf["totals"]["flags"] = model.apply_acknowledgements(pf["views"], store.flag_log())
     synced = last_synced(txns)
     today = dt.date.today().isoformat()
@@ -100,6 +107,9 @@ def ctx(request, **kw):
     rows = {p.get("Project"): p for p in projects}
     pls = {v["code"]: pl.project_pl(rows[v["code"]], v, today, ((b or {}).get("pl_actuals") or {}).get(v["code"]) if b else None)
            for v in pf["views"]}
+    for code, x in pls.items():                    # when month-end flattening last ran
+        x["last_journal"] = model.nsdate(((b or {}).get("journals") or {}).get(code))
+        x["journal_behind"] = bool(x["last_journal"]) and x["last_journal"][:7] < pl.add(today[:7], -1)   # last month's not run
     fy = model.fy_of(today[:7])
     by_month = {}
     for x in pls.values():

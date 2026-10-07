@@ -307,14 +307,29 @@ class Store:
         projects = [(p["Project"], p.get("NetSuite Job ID"), p.get("Unearned Acct ID"))
                     for p in self.load()[0] if p.get("NetSuite Job ID") and p.get("Status") != "Closed"]
         rows = [p for p in self.load()[0] if p.get("NetSuite Job ID") and p.get("Status") not in model.LIVE_OUT]
-        jobs = {"budget": lambda: NetSuite().systems_budget(fy),
+        all_jobs = [p.get("NetSuite Job ID") for p in self.load()[0] if p.get("NetSuite Job ID")]
+        since = model.add_days(today, -365)
+        jobs = {"untagged": lambda: NetSuite().untagged(all_jobs, since),
+                "quotes": lambda: NetSuite().job_quotes(all_jobs),
+                "journals": lambda: NetSuite().last_journals({p["Project"]: (p.get("Unearned Acct ID"), p.get("WIP Acct ID"))
+                                                              for p in self.load()[0] if p.get("Status") != "Closed"}),
+                "budget": lambda: NetSuite().systems_budget(fy),
                 "actual": lambda: NetSuite().systems_actual(model.fy_months(fy)),
                 "recognised": lambda: NetSuite().recognised(projects, model.fy_start(today)),
                 "pl_actuals": lambda: NetSuite().pl_actuals([(p["Project"], p.get("NetSuite Job ID"), p.get("Unearned Acct ID"),
                                                               p.get("WIP Acct ID")) for p in rows])}
-        with ThreadPoolExecutor(max_workers=4) as ex:
+        with ThreadPoolExecutor(max_workers=3) as ex:            # NetSuite's concurrency limit is low
             got = {k: ex.submit(f) for k, f in jobs.items()}
-            out = {k: f.result() for k, f in got.items()}
+            out = {}
+            for k, f in got.items():
+                try:
+                    out[k] = f.result()
+                except Exception:
+                    if k in ("untagged", "quotes", "journals"):        # extras: the FY card doesn't depend on them
+                        log.exception("NetSuite %s", k)
+                        out[k] = [] if k != "journals" else {}
+                    else:
+                        raise
         self.bud = {"fy": fy, **out, "at": dt.datetime.now().strftime("%d %b %y %H:%M")}
         self.bud_at = time.time()
 
