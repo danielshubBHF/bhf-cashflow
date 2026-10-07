@@ -26,7 +26,18 @@ from .smartsheet_db import API, Table
 
 log = logging.getLogger("project_sheets")
 CONTRACTED = int(os.getenv("SS_CONTRACTED_FOLDER", "1654885033764740"))     # 3. BHF Systems / 2. Contracted
-SUFFIX = "Cashflow - LIVE"
+SUFFIX = "Cashflow"              # sheets are "3. {code} {project name} Cashflow"; ours carry a hidden "Was" column
+MARK = "Was"
+
+
+def sheet_name(code: str, name: str) -> str:
+    """'3. BHF26001 Stacked Farm DAF UF RO 8 Cashflow', the project name trimmed (at a word) to Smartsheet's 50 characters."""
+    words, keep = (name or "").split(), []
+    for w in words:
+        if len(f"3. {code} {' '.join(keep + [w])} {SUFFIX}") > 50:
+            break
+        keep.append(w)
+    return " ".join(["3.", code, *keep, SUFFIX])
 
 # Smartsheet format descriptor: fontFamily, fontSize, bold, italic, underline, strikethrough, horizontalAlign,
 # verticalAlign, color, backgroundColor, taskbarColor, currency, decimalCount, thousandsSeparator, numberFormat,
@@ -181,9 +192,15 @@ class Sheets:
         return next((f for f in self.get(f"/folders/{CONTRACTED}").get("folders", [])
                      if f["name"].upper().startswith(code.upper())), None)
 
+    def ours(self, folder_id: int) -> dict | None:
+        """The app's cashflow sheet in a project folder: the one with the hidden "Was" column."""
+        for s in self.get(f"/folders/{folder_id}").get("sheets", []):
+            if "ashflow" in s["name"] and any(c["title"] == MARK for c in self.get(f"/sheets/{s['id']}/columns").get("data", [])):
+                return s
+        return None
+
     def find_or_create(self, folder_id: int, name: str) -> int:
-        sheets = self.get(f"/folders/{folder_id}").get("sheets", [])
-        hit = next((s for s in sheets if s["name"] == name), None) or next((s for s in sheets if s["name"].endswith(SUFFIX)), None)
+        hit = self.ours(folder_id)
         if hit:
             if hit["name"] != name:
                 requests.put(f"{API}/sheets/{hit['id']}", headers=self.h, json={"name": name}, timeout=30).raise_for_status()
@@ -240,6 +257,38 @@ def write(sheet_id: int, rows: list[dict]):
         level = nxt
 
 
+def wanted(p: dict) -> bool:
+    """Live projects, and Complete ones (their folder is only found while it's still under 2. Contracted)."""
+    return bool(p.get("Project")) and p.get("Status") != "Closed"
+
+
+def archive_old(dry: bool = False) -> list[str]:
+    """One-off tidy: move each project folder's old hand-kept cashflow sheets into its Archive subfolder."""
+    ss, moved = Sheets(), []
+    for f in ss.get(f"/folders/{CONTRACTED}").get("folders", []):
+        if not f["name"].upper().startswith("BHF2"):
+            continue
+        sub = ss.get(f"/folders/{f['id']}")
+        mine = ss.ours(f["id"])
+        old = [s for s in sub.get("sheets", []) if "ashflow" in s["name"] and (not mine or s["id"] != mine["id"])]
+        if not old or not mine:
+            continue                                   # keep the old sheet until the new one exists
+        arch = next((x for x in sub.get("folders", []) if x["name"].lower() == "archive"), None)
+        for s in old:
+            moved.append(f"{f['name']}: {s['name']} -> Archive")
+            if dry:
+                continue
+            if not arch:
+                r = requests.post(f"{API}/folders/{f['id']}/folders", headers=ss.h, json={"name": "Archive"}, timeout=30)
+                r.raise_for_status()
+                arch = r.json()["result"]
+            requests.post(f"{API}/sheets/{s['id']}/move", headers=ss.h, timeout=30,
+                          json={"destinationType": "folder", "destinationId": arch["id"]}).raise_for_status()
+    for m in moved:
+        log.info(m)
+    return moved
+
+
 def publish(only: str | None = None, dry: bool = False, problems: dict | None = None) -> list[str]:
     """Write the LIVE cashflow sheet for every live project (or one)."""
     problems = problems or {}
@@ -249,7 +298,7 @@ def publish(only: str | None = None, dry: bool = False, problems: dict | None = 
     ss, done = Sheets(), []
     for p in P:
         code = p.get("Project")
-        if p.get("Status") in model.LIVE_OUT or (only and code != only):
+        if not wanted(p) or (only and code != only):
             continue
         v = model.project_view(p, F, T, S, today)
         rows = layout(v, as_at, problems.get(code))
@@ -257,7 +306,7 @@ def publish(only: str | None = None, dry: bool = False, problems: dict | None = 
         if not folder:
             log.warning("%s: no folder under 2. Contracted starting with the code; skipped", code)
             continue
-        name = f"3. {code} {SUFFIX}"                     # Smartsheet allows 50 characters; the folder names the job
+        name = sheet_name(code, p.get("Name") or "")
         if dry:
             n = sum(1 + len(c["children"]) + sum(len(g.get("children", [])) for g in c["children"]) for c in rows)
             log.info("%s: would write %d rows to '%s' in folder %s", code, n, name, folder["name"])
@@ -318,11 +367,10 @@ def pull(only: str | None = None, dry: bool = False) -> dict:
     projects = store.load(force=True)[0]
     for p in projects:
         code = p.get("Project")
-        if p.get("Status") in model.LIVE_OUT or (only and code != only):
+        if only and code != only:
             continue
         folder = ss.project_folder(code)
-        sheet = next((x for x in (ss.get(f"/folders/{folder['id']}").get("sheets", []) if folder else [])
-                      if x["name"].endswith(SUFFIX)), None)
+        sheet = ss.ours(folder["id"]) if folder and wanted(p) else None
         if not sheet:
             continue
         edits, new = sheet_edits(Table(sheet["id"]).load())
@@ -404,8 +452,12 @@ if __name__ == "__main__":
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--project")
     ap.add_argument("--no-style", action="store_true")
+    ap.add_argument("--archive-old", action="store_true", help="one-off: move old cashflow sheets into Archive")
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     a = ap.parse_args()
+    if a.archive_old:
+        archive_old(a.dry_run)
+        raise SystemExit
     found = safe_pull(a.dry_run, a.project)
     if a.no_style:
         publish(a.project, a.dry_run, found)
