@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=2610l">
+<link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body{% if demo %} data-demo{% endif %}>
@@ -28,7 +28,7 @@
 {% block main %}{% endblock %}
 </div>
 {% block drawers %}{% endblock %}
-<script src="/static/dash.js?v=2610l"></script>
+<script src="/static/dash.js?v={{ asset_v }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

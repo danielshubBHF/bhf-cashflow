@@ -178,4 +178,4 @@
 
 {% call drawer('d-chart', 'How to read the cash chart', v.code, size='mid') %}{{ chart_help() }}{% endcall %}
 {% endblock %}
-{% block scripts %}<script>window.CURVE = {{ v.curve|tojson }};</script><script src="/static/chart.js?v=2610g"></script><script src="/static/editor.js?v=2610g"></script>{% endblock %}
+{% block scripts %}<script>window.CURVE = {{ v.curve|tojson }};</script><script src="/static/chart.js?v={{ asset_v }}"></script><script src="/static/editor.js?v={{ asset_v }}"></script>{% endblock %}

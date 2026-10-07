@@ -83,6 +83,8 @@ def view(enquiries: list[dict], settings: list[dict], today: str, fy: str) -> di
                      "include": not s.get("Exclude"), "set": bool(s), "this": this, "next": then,
                      "this_w": round(this * prob, 2), "next_w": round(then * prob, 2),
                      "their_fy": money(r.get("FY27 $") or r.get("Potential Revenue FY27")) if fy == "FY27" else None})
+    for x in rows:          # in the forecast / not yet (no start month or value) / hidden by you
+        x["group"] = "hidden" if not x["include"] else "todo" if x["needs_start"] or not x["value"] else "counted"
     rows.sort(key=lambda x: (not x["include"], x["needs_start"], -x["this_w"], -x["value"]))
     inc = [x for x in rows if x["include"]]
     tot = {k: round(sum(x[k] for x in inc), 2) for k in ("value", "this", "next", "this_w", "next_w")}

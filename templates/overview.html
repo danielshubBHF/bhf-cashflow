@@ -23,44 +23,77 @@
 </section>
 
 {% if pv %}
+{% macro pipe_value(r) -%}
+  <input form="pf-{{ r.id }}" name="value" value="{{ '%.0f'|format(r.value) if r.value else '' }}" inputmode="decimal" size="9" placeholder="value" aria-label="Value">
+{%- endmacro %}
+{% set counted = pv.rows|selectattr('group', 'equalto', 'counted')|list %}
+{% set todo = pv.rows|selectattr('group', 'equalto', 'todo')|list %}
+{% set hidden = pv.rows|selectattr('group', 'equalto', 'hidden')|list %}
 <section class="pane" data-tab="pipeline" role="tabpanel" aria-label="Pipeline" id="pipeline">
 <section class="budget pipe">
   <div class="ct-head"><h3>Pipeline · open Systems enquiries</h3>
-    <span>From <i>1. Enquiries Pipeline Mastersheet</i>, projected into the P&amp;L by the same staged formula as live projects
-      (30/20/20/20/10 over 2/2/3/2/2 months unless you change it). Weighted = × probability. Your changes are saved in the Cashflow Database, not the enquiries sheet.</span></div>
+    <span>From the Enquiries Pipeline Mastersheet, projected into the P&amp;L by the same staged formula as live projects. Weighted = × probability. Your settings are saved in the Cashflow Database, not the enquiries sheet.</span></div>
   <div class="bud-line pipe-line">
-    <div><small>Open Systems enquiries</small><b>{{ pv.count }}</b><span>{{ pv.value|money }} total value{% if pv.no_start %} · <span class="neg">{{ pv.no_start }} ({{ pv.no_start_value|money }}) need a start month</span>{% endif %}</span></div>
+    <div><small>In the forecast</small><b>{{ counted|length }}</b><span>{{ counted|sum(attribute='value')|money }} of {{ pv.value|money }} open</span></div>
     <div><small>{{ pv.fy }} by formula</small><b>{{ pv.this|money }}</b><span>if every one is won</span></div>
     <div class="gap"><small>{{ pv.fy }} weighted</small><b>{{ pv.this_w|money }}</b><span>× each enquiry's probability</span></div>
     <div><small>{{ pv.next_fy }} weighted</small><b>{{ pv.next_w|money }}</b><span>{{ pv.next|money }} unweighted</span></div>
-    {% if bv %}<div><small>Still to win after pipeline</small><b class="{{ 'neg' if bv.gap_after > 0 }}">{{ bv.gap_after|money }}</b><span>{{ bv.gap|money }} still to win − {{ pv.this_w|money }} weighted pipeline</span></div>{% endif %}
+    {% if bv %}<div><small>Still to win after pipeline</small><b class="{{ 'neg' if bv.gap_after > 0 }}">{{ bv.gap_after|money }}</b><span>{{ bv.gap|money }} − {{ pv.this_w|money }} weighted pipeline</span></div>{% endif %}
   </div>
+
   <div class="ct-scroll"><table class="ct pipe-tbl">
-    <thead><tr><th>Enquiry</th><th class="n">Value</th><th>Likelihood · conversion</th><th>Start month</th><th>Months per stage</th><th class="n">Probability</th>
+    <thead><tr><th>In the forecast</th><th class="n">Value</th><th>Start month</th><th>Months per stage</th><th class="n">Probability</th>
       <th class="n">{{ pv.fy }}</th><th class="n">{{ pv.fy }} weighted</th><th class="n">{{ pv.next_fy }} weighted</th><th></th></tr></thead>
     <tbody>
-    {% for r in pv.rows %}
-    <tr class="{{ 'muted-row' if not r.include }}">
-      <td><b>{{ r.name }}</b>{% if r.lead %}<small>{{ r.lead }}</small>{% endif %}{% if r.their_fy %}<small>team's FY27 estimate {{ r.their_fy|money }}</small>{% endif %}</td>
-      <td class="n"><form id="pf-{{ r.id }}" method="post" action="/pipeline/{{ r.id }}" class="pipe-form"><input type="hidden" name="name" value="{{ r.name }}"></form>
-        <input form="pf-{{ r.id }}" name="value" value="{{ '%.0f'|format(r.value) if r.value else '' }}" inputmode="decimal" size="9" aria-label="Value"></td>
-      <td><small>{{ r.likelihood or '—' }} · {{ r.conversion or '—' }}</small></td>
-      <td><input form="pf-{{ r.id }}" type="month" name="start" value="{{ r.start or '' }}" aria-label="Start month">{% if r.needs_start %}<small class="neg">set a start month to count it</small>{% endif %}</td>
-      <td><input form="pf-{{ r.id }}" name="stages" value="{{ r.stages }}" size="9" aria-label="Months per stage"></td>
+    {% for r in counted %}
+    <tr>
+      <td><b>{{ r.name }}</b><small>{{ r.lead }}{% if r.likelihood %} · likelihood {{ r.likelihood }}{% endif %}</small>
+        <form id="pf-{{ r.id }}" method="post" action="/pipeline/{{ r.id }}"><input type="hidden" name="name" value="{{ r.name }}"></form></td>
+      <td class="n">{{ pipe_value(r) }}</td>
+      <td><input form="pf-{{ r.id }}" type="month" name="start" value="{{ r.start or '' }}" aria-label="Start month"></td>
+      <td><input form="pf-{{ r.id }}" name="stages" value="{{ r.stages }}" size="8" aria-label="Months per stage"></td>
       <td class="n"><input form="pf-{{ r.id }}" name="prob" value="{{ '%g'|format(r.prob * 100) }}" size="3" inputmode="decimal" aria-label="Probability %">%</td>
-      <td class="n">{{ r.this|money if r.this else '—' }}</td>
-      <td class="n"><b>{{ r.this_w|money if r.this_w else '—' }}</b></td>
-      <td class="n">{{ r.next_w|money if r.next_w else '—' }}</td>
-      <td class="c"><label class="exc"><input form="pf-{{ r.id }}" type="checkbox" name="exclude" value="1" {{ 'checked' if not r.include }}> leave out</label>
-        <button form="pf-{{ r.id }}" class="btn ghost">Save</button></td>
+      <td class="n">{{ r.this|money }}</td><td class="n"><b>{{ r.this_w|money }}</b></td><td class="n">{{ r.next_w|money }}</td>
+      <td class="c nowrap"><button form="pf-{{ r.id }}" class="btn ghost">Save</button>
+        <form method="post" action="/pipeline/{{ r.id }}" class="inline"><input type="hidden" name="name" value="{{ r.name }}"><input type="hidden" name="hide" value="1"><button class="lnk">Hide</button></form></td>
     </tr>
+    {% else %}<tr><td colspan="9" class="muted">Nothing in the forecast yet. Open “Add to the forecast” below and set a start month (and value) on the enquiries you expect to win.</td></tr>
     {% endfor %}
     </tbody>
-    <tfoot><tr><td>Included</td><td class="n">{{ pv.value|money }}</td><td></td><td></td><td></td><td></td><td class="n">{{ pv.this|money }}</td><td class="n">{{ pv.this_w|money }}</td><td class="n">{{ pv.next_w|money }}</td><td></td></tr></tfoot>
+    {% if counted %}<tfoot><tr><td>Total</td><td class="n">{{ counted|sum(attribute='value')|money }}</td><td></td><td></td><td></td><td class="n">{{ pv.this|money }}</td><td class="n">{{ pv.this_w|money }}</td><td class="n">{{ pv.next_w|money }}</td><td></td></tr></tfoot>{% endif %}
   </table></div>
+
+  {% if todo %}
+  <details class="pipe-more" id="pipe-todo"{% if not counted %} open{% endif %}>
+    <summary>Add to the forecast · {{ todo|length }} open enquir{{ 'y' if todo|length == 1 else 'ies' }} not counted yet ({{ todo|sum(attribute='value')|money }}): set a start month (and value, if blank) to count one, or hide it</summary>
+    <div class="ct-scroll"><table class="ct pipe-tbl compact">
+      <thead><tr><th>Enquiry</th><th class="n">Value</th><th>Likelihood</th><th>Start month</th><th class="n">Probability</th><th></th></tr></thead>
+      <tbody>{% for r in todo %}
+      <tr>
+        <td><b>{{ r.name }}</b>{% if r.lead %} <small class="inl">{{ r.lead }}</small>{% endif %}
+          <form id="pf-{{ r.id }}" method="post" action="/pipeline/{{ r.id }}"><input type="hidden" name="name" value="{{ r.name }}"><input type="hidden" name="stages" value="{{ r.stages }}"></form></td>
+        <td class="n">{{ pipe_value(r) }}</td>
+        <td><small class="inl">{{ r.likelihood or '—' }}{% if r.conversion %} · {{ r.conversion }}{% endif %}</small></td>
+        <td><input form="pf-{{ r.id }}" type="month" name="start" value="{{ r.start or '' }}" aria-label="Start month"></td>
+        <td class="n"><input form="pf-{{ r.id }}" name="prob" value="{{ '%g'|format(r.prob * 100) }}" size="3" inputmode="decimal" aria-label="Probability %">%</td>
+        <td class="c nowrap"><button form="pf-{{ r.id }}" class="btn ghost">Add</button>
+          <form method="post" action="/pipeline/{{ r.id }}" class="inline"><input type="hidden" name="name" value="{{ r.name }}"><input type="hidden" name="hide" value="1"><button class="lnk">Hide</button></form></td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+  </details>
+  {% endif %}
+
+  {% if hidden %}
+  <details class="pipe-more" id="pipe-hidden">
+    <summary>Hidden · {{ hidden|length }} enquir{{ 'y' if hidden|length == 1 else 'ies' }} left out ({{ hidden|sum(attribute='value')|money }})</summary>
+    <ul class="pipe-hidden">{% for r in hidden %}<li><span>{{ r.name }} <small>{{ r.value|money if r.value else 'no value' }}</small></span>
+      <form method="post" action="/pipeline/{{ r.id }}" class="inline"><input type="hidden" name="name" value="{{ r.name }}"><input type="hidden" name="hide" value="0"><button class="lnk">Unhide</button></form></li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+
   <p class="bud-note">Defaults: probability from Likelihood (1 PO imminent 90%, 2 awaiting approval 70%, 3 in negotiation 50%, 4 in discussion 25%, 5 unlikely 5%),
-    or the older Likelihood (0-5) column (5 → 75%, 4 → 50%, 3 → 30%, 2 → 15%, 1 → 5%). Start month from Estimated Order Date, else Estimated Conversion
-    (0-3 months → in 2 months, 3-6 → 5, 6-12 → 9, &gt; 12 → next July); with neither, the enquiry isn't counted until you set one. {{ pv.fy }} counts from this month to 30 June.</p>
+    or the older Likelihood (0-5) column (5 → 75%, 4 → 50%, 3 → 30%, 2 → 15%, 1 → 5%). Start month from Estimated Order Date or Estimated Conversion when the enquiry has one;
+    otherwise it isn't counted until you set one. Stages 30/20/20/20/10 over 2/2/3/2/2 months unless you change it. {{ pv.fy }} counts from this month to 30 June.</p>
 </section>
 </section>
 {% endif %}
@@ -202,4 +235,4 @@
 
 {% call drawer('d-chart', 'How to read the cash chart', 'All live projects', size='mid') %}{{ chart_help('Here the FY buttons include completed projects, so a past year shows everything that moved in it; “All” shows live projects only.') }}{% endcall %}
 {% endblock %}
-{% block scripts %}<script>window.CURVE = {{ pf.curve|tojson }}; window.CURVE_FY = {{ pf.curve_fy|tojson }};</script><script src="/static/chart.js?v=2610g"></script>{% endblock %}
+{% block scripts %}<script>window.CURVE = {{ pf.curve|tojson }}; window.CURVE_FY = {{ pf.curve_fy|tojson }};</script><script src="/static/chart.js?v={{ asset_v }}"></script>{% endblock %}

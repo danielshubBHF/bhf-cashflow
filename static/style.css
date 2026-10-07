@@ -899,3 +899,22 @@ html.js .board.scroll{height:auto;min-height:100vh}
 .pipe-tbl .exc{font-size:12px;color:var(--muted);white-space:nowrap;margin-right:6px}
 .pipe-tbl tr.muted-row td{opacity:.55}
 .pipe-line{grid-template-columns:repeat(5,minmax(0,1fr))}
+
+/* ---- layout review (8 Oct): give the lists and charts the room, not the statement */
+@media (min-width:641px){
+  .rs td small{display:inline;margin-left:6px}               /* sub-labels beside the figure: one line per row */
+  .rs td{padding-top:4px;padding-bottom:4px}
+  .rs-docs{font-size:12.5px;margin-top:4px}
+  .ptbl td:first-child{min-width:300px}
+  .bud-right>.ct-scroll{flex:0 1 auto;min-height:190px;overflow:auto}   /* the project table scrolls, the chart keeps its height */
+  .bud-chart{flex:1 0 210px}
+}
+@media (min-width:1301px){ .bud-line{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr)} }
+
+.pipe-more{margin-top:12px;border-top:1px solid var(--line);padding-top:8px}
+.pipe-more>summary{cursor:pointer;font-family:var(--head);font-weight:600;color:var(--navy);font-size:13.5px;padding:4px 0}
+.pipe-tbl.compact td{padding-top:3px;padding-bottom:3px} .pipe-tbl small.inl{display:inline;color:var(--muted)}
+.pipe-tbl td.nowrap{white-space:nowrap} form.inline{display:inline;margin-left:6px}
+.pipe-hidden{list-style:none;margin:6px 0 0;padding:0;columns:2;column-gap:28px;font-size:13px}
+.pipe-hidden li{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--line);break-inside:avoid}
+.pipe-hidden small{color:var(--muted)}

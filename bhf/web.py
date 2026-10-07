@@ -47,7 +47,8 @@ def pie(values) -> str:
 
 
 LOGO = (ROOT / "static" / "logo-datauri.txt").read_text(encoding="utf-8").strip()      # BHF logo, inlined once
-tpl.env.globals.update(fy_start=model.fy_start, norm=model.norm, cost_types=editor.COST_TYPES, pal=PAL, pie=pie, logo=LOGO,
+ASSET_V = "2610m"          # bump when static/*.css or *.js change, so browsers fetch the new file
+tpl.env.globals.update(asset_v=ASSET_V, fy_start=model.fy_start, norm=model.norm, cost_types=editor.COST_TYPES, pal=PAL, pie=pie, logo=LOGO,
                         today=lambda: dt.date.today().isoformat())
 app.include_router(auth.router)
 
@@ -125,6 +126,9 @@ async def save_pipeline(request: Request, row_id: str):
         return r
     from . import pl
     form = await request.form()
+    if form.get("hide") in ("0", "1"):                  # Hide / Unhide only: leave the other settings alone
+        err = _safely(store.save_pipeline, row_id, str(form.get("name") or ""), {"Exclude": form.get("hide") == "1"})
+        return RedirectResponse("/?" + (f"err={quote(err)}&" if err else "") + "tab=pipeline#pipeline", status_code=303)
     start, stages = str(form.get("start") or "").strip(), str(form.get("stages") or "").strip()
     prob, value = str(form.get("prob") or "").strip(), str(form.get("value") or "").strip()
     err = None
@@ -140,8 +144,7 @@ async def save_pipeline(request: Request, row_id: str):
         err = _safely(store.save_pipeline, row_id, str(form.get("name") or ""), {
             "Start": f"{pl.ym(start)}-01" if start else None, "Stages": stages or None,
             "Probability %": float(prob.rstrip("%")) if prob else None,
-            "Value": float(value.replace("$", "").replace(",", "")) if value else None,
-            "Exclude": bool(form.get("exclude"))})
+            "Value": float(value.replace("$", "").replace(",", "")) if value else None})
     url = "/?" + (f"err={quote(err)}&" if err else "") + "tab=pipeline#pipeline"
     return RedirectResponse(url, status_code=303)
 
