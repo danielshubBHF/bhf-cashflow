@@ -12,13 +12,58 @@
     <button type="button" role="tab" data-tab="budget" aria-selected="true" class="on">{{ fyb }} vs budget</button>
     <button type="button" role="tab" data-tab="cash" aria-selected="false">Cash</button>
     <button type="button" role="tab" data-tab="months" aria-selected="false">Cash by month</button>
+    {% if pv %}<button type="button" role="tab" data-tab="pipeline" aria-selected="false">Pipeline <span class="cnt">{{ pv.count }}</span></button>{% endif %}
   </nav>
 </div>
+{% if err %}<p class="error" role="alert">Not saved: {{ err }}</p>{% endif %}
 
 <div class="panes">
 <section class="pane on" data-tab="budget" role="tabpanel" aria-label="{{ fyb }} vs budget">
 {{ budget_card(bv) }}
 </section>
+
+{% if pv %}
+<section class="pane" data-tab="pipeline" role="tabpanel" aria-label="Pipeline" id="pipeline">
+<section class="budget pipe">
+  <div class="ct-head"><h3>Pipeline · open Systems enquiries</h3>
+    <span>From <i>1. Enquiries Pipeline Mastersheet</i>, projected into the P&amp;L by the same staged formula as live projects
+      (30/20/20/20/10 over 2/2/3/2/2 months unless you change it). Weighted = × probability. Your changes are saved in the Cashflow Database, not the enquiries sheet.</span></div>
+  <div class="bud-line pipe-line">
+    <div><small>Open Systems enquiries</small><b>{{ pv.count }}</b><span>{{ pv.value|money }} total value{% if pv.no_start %} · <span class="neg">{{ pv.no_start }} ({{ pv.no_start_value|money }}) need a start month</span>{% endif %}</span></div>
+    <div><small>{{ pv.fy }} by formula</small><b>{{ pv.this|money }}</b><span>if every one is won</span></div>
+    <div class="gap"><small>{{ pv.fy }} weighted</small><b>{{ pv.this_w|money }}</b><span>× each enquiry's probability</span></div>
+    <div><small>{{ pv.next_fy }} weighted</small><b>{{ pv.next_w|money }}</b><span>{{ pv.next|money }} unweighted</span></div>
+    {% if bv %}<div><small>Still to win after pipeline</small><b class="{{ 'neg' if bv.gap_after > 0 }}">{{ bv.gap_after|money }}</b><span>{{ bv.gap|money }} still to win − {{ pv.this_w|money }} weighted pipeline</span></div>{% endif %}
+  </div>
+  <div class="ct-scroll"><table class="ct pipe-tbl">
+    <thead><tr><th>Enquiry</th><th class="n">Value</th><th>Likelihood · conversion</th><th>Start month</th><th>Months per stage</th><th class="n">Probability</th>
+      <th class="n">{{ pv.fy }}</th><th class="n">{{ pv.fy }} weighted</th><th class="n">{{ pv.next_fy }} weighted</th><th></th></tr></thead>
+    <tbody>
+    {% for r in pv.rows %}
+    <tr class="{{ 'muted-row' if not r.include }}">
+      <td><b>{{ r.name }}</b>{% if r.lead %}<small>{{ r.lead }}</small>{% endif %}{% if r.their_fy %}<small>team's FY27 estimate {{ r.their_fy|money }}</small>{% endif %}</td>
+      <td class="n"><form id="pf-{{ r.id }}" method="post" action="/pipeline/{{ r.id }}" class="pipe-form"><input type="hidden" name="name" value="{{ r.name }}"></form>
+        <input form="pf-{{ r.id }}" name="value" value="{{ '%.0f'|format(r.value) if r.value else '' }}" inputmode="decimal" size="9" aria-label="Value"></td>
+      <td><small>{{ r.likelihood or '—' }} · {{ r.conversion or '—' }}</small></td>
+      <td><input form="pf-{{ r.id }}" type="month" name="start" value="{{ r.start or '' }}" aria-label="Start month">{% if r.needs_start %}<small class="neg">set a start month to count it</small>{% endif %}</td>
+      <td><input form="pf-{{ r.id }}" name="stages" value="{{ r.stages }}" size="9" aria-label="Months per stage"></td>
+      <td class="n"><input form="pf-{{ r.id }}" name="prob" value="{{ '%g'|format(r.prob * 100) }}" size="3" inputmode="decimal" aria-label="Probability %">%</td>
+      <td class="n">{{ r.this|money if r.this else '—' }}</td>
+      <td class="n"><b>{{ r.this_w|money if r.this_w else '—' }}</b></td>
+      <td class="n">{{ r.next_w|money if r.next_w else '—' }}</td>
+      <td class="c"><label class="exc"><input form="pf-{{ r.id }}" type="checkbox" name="exclude" value="1" {{ 'checked' if not r.include }}> leave out</label>
+        <button form="pf-{{ r.id }}" class="btn ghost">Save</button></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr><td>Included</td><td class="n">{{ pv.value|money }}</td><td></td><td></td><td></td><td></td><td class="n">{{ pv.this|money }}</td><td class="n">{{ pv.this_w|money }}</td><td class="n">{{ pv.next_w|money }}</td><td></td></tr></tfoot>
+  </table></div>
+  <p class="bud-note">Defaults: probability from Likelihood (1 PO imminent 90%, 2 awaiting approval 70%, 3 in negotiation 50%, 4 in discussion 25%, 5 unlikely 5%),
+    or the older Likelihood (0-5) column (5 → 75%, 4 → 50%, 3 → 30%, 2 → 15%, 1 → 5%). Start month from Estimated Order Date, else Estimated Conversion
+    (0-3 months → in 2 months, 3-6 → 5, 6-12 → 9, &gt; 12 → next July); with neither, the enquiry isn't counted until you set one. {{ pv.fy }} counts from this month to 30 June.</p>
+</section>
+</section>
+{% endif %}
 
 <section class="pane" data-tab="cash" role="tabpanel" aria-label="Cash">
 <h3 class="sect">Cash on live projects</h3>

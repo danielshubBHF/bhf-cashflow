@@ -268,6 +268,39 @@ class Store:
         self._update("projects", [(row, changes(row, values))])
         return None
 
+    # ---- pipeline: enquiries (read only) and the overrides typed on the Pipeline tab
+    def pipeline(self) -> tuple[list, list]:
+        if self.demo:
+            return getattr(self, "_enq", []), getattr(self, "_pipe", [])
+        if getattr(self, "_pipe_at", 0) != self.at:          # reload with the rest of the data
+            from .smartsheet_db import Table
+            try:
+                self._enq = Table(config.SHEET_ENQUIRIES).load()
+            except Exception:
+                log.exception("enquiries sheet")
+                self._enq = []
+            self._pipe_table = Table(config.SHEET_PIPELINE) if config.SHEET_PIPELINE else None
+            self._pipe = self._pipe_table.load() if self._pipe_table else []
+            self._pipe_at = self.at
+        return self._enq, self._pipe
+
+    def save_pipeline(self, row_id, name: str, values: dict) -> str | None:
+        if not self.demo and not config.SHEET_PIPELINE:
+            return "The Pipeline sheet isn't set up (SHEET_PIPELINE)."
+        _, pipe = self.pipeline()
+        values = {**values, "Updated": dt.date.today().isoformat()}
+        row = next((s for s in pipe if str(s.get("Row ID")) == str(row_id)), None)
+        if row:
+            diff = changes(row, values)
+            if diff and not self.demo:
+                self._pipe_table.update([(row["_id"], {k: ("" if v is None else v) for k, v in diff.items()})])
+            row.update(diff)
+        else:
+            row = {"Enquiry": name, "Row ID": str(row_id), **values}
+            row["_id"] = next(self._ids) if self.demo else self._pipe_table.add([row])[0]["id"]
+            pipe.append(row)
+        return None
+
     # ---- "needs attention" acknowledgements (Flag Log sheet)
     def flag_log(self) -> list[dict]:
         if self.demo or not config.SHEET_FLAGS:

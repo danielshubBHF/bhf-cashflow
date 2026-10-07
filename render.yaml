@@ -55,3 +55,5 @@ envVarGroups:
         sync: false
       - key: SHEET_FLAGS          # "Flag Log" sheet: acknowledged "needs attention" items
         sync: false
+      - key: SHEET_PIPELINE       # "Pipeline" sheet: start month / split / probability per enquiry
+        sync: false

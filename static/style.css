@@ -892,3 +892,10 @@ html.js .board.scroll{height:auto;min-height:100vh}
   .pl-form{flex-wrap:wrap;max-width:100%} .pl-set{min-width:0;max-width:100%}
   .pane{overflow-x:hidden}
 }
+
+/* pipeline tab */
+.pipe-tbl input{font:inherit;font-size:13px;padding:3px 6px;border:1px solid var(--edge);border-radius:6px;max-width:100%}
+.pipe-tbl input[type=month]{width:9.5rem} .pipe-tbl td small{display:block;color:var(--muted)}
+.pipe-tbl .exc{font-size:12px;color:var(--muted);white-space:nowrap;margin-right:6px}
+.pipe-tbl tr.muted-row td{opacity:.55}
+.pipe-line{grid-template-columns:repeat(5,minmax(0,1fr))}

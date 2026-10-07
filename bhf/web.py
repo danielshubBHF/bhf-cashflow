@@ -2,6 +2,7 @@
 import datetime as dt
 import logging
 import os
+import re
 import threading
 from pathlib import Path
 from urllib.parse import quote
@@ -92,11 +93,57 @@ def ctx(request, **kw):
             "as_at": "demo data" if store.demo else (synced or "not synced yet"), **kw}
 
 
+def pipeline_view(c) -> dict | None:
+    from . import pipeline
+    try:
+        enq, pipe = store.pipeline()
+    except Exception:
+        log.exception("pipeline")
+        return None
+    today = dt.date.today().isoformat()
+    pv = pipeline.view(enq, pipe, today, model.fy_of(today[:7]))
+    if c.get("bv"):
+        c["bv"]["pipeline_w"] = pv["this_w"]
+        c["bv"]["gap_after"] = round(c["bv"]["gap"] - pv["this_w"], 2)
+    return pv
+
+
 @app.get("/", response_class=HTMLResponse)
 def overview(request: Request):
     if (r := auth.require(request)):
         return r
-    return tpl.TemplateResponse(request, "overview.html", ctx(request, active="overview"))
+    c = ctx(request, active="overview")
+    c["pv"] = pipeline_view(c)
+    c["err"] = request.query_params.get("err")
+    return tpl.TemplateResponse(request, "overview.html", c)
+
+
+@app.post("/pipeline/{row_id}")
+async def save_pipeline(request: Request, row_id: str):
+    """The PM's start month / stages / probability / value for one enquiry, or exclude it."""
+    if (r := auth.require(request)):
+        return r
+    from . import pl
+    form = await request.form()
+    start, stages = str(form.get("start") or "").strip(), str(form.get("stages") or "").strip()
+    prob, value = str(form.get("prob") or "").strip(), str(form.get("value") or "").strip()
+    err = None
+    if start and not pl.ym(start):
+        err = "Start month must look like 2026-11."
+    elif stages and pl.parse_months(stages) != [int(x) for x in re.split(r"[/,]", stages) if x.strip().isdigit()]:
+        err = "Months per stage must be five whole numbers, e.g. 2/2/3/2/2."
+    elif prob and not re.fullmatch(r"\d+(\.\d+)?%?", prob):
+        err = "Probability must be a percentage, e.g. 50."
+    elif value and not re.fullmatch(r"\$?[\d,]+(\.\d+)?", value):
+        err = "Value must be a number."
+    if not err:
+        err = _safely(store.save_pipeline, row_id, str(form.get("name") or ""), {
+            "Start": f"{pl.ym(start)}-01" if start else None, "Stages": stages or None,
+            "Probability %": float(prob.rstrip("%")) if prob else None,
+            "Value": float(value.replace("$", "").replace(",", "")) if value else None,
+            "Exclude": bool(form.get("exclude"))})
+    url = "/?" + (f"err={quote(err)}&" if err else "") + "tab=pipeline#pipeline"
+    return RedirectResponse(url, status_code=303)
 
 
 @app.get("/p/{code}", response_class=HTMLResponse)
