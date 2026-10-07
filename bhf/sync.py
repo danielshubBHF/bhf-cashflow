@@ -277,4 +277,9 @@ if __name__ == "__main__":
     ap.add_argument("--refetch-bills", action="store_true", help="one-off: use suppliers' own invoices for bills")
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     a = ap.parse_args()
-    refetch_bills(a.dry_run) if a.refetch_bills else run(a.dry_run)
+    if a.refetch_bills:
+        refetch_bills(a.dry_run)
+    else:
+        run(a.dry_run)
+        from . import project_sheets               # readable views in Smartsheet; never fails the sync
+        project_sheets.run(a.dry_run)
