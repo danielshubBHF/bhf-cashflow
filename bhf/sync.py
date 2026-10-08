@@ -45,8 +45,11 @@ def fetch_pdf(ns, d: dict):
     try:
         if d["type"] == "InvAdjst":
             return ns.stock_issue_pdf(int(d["id"]))
-        # Bills use NetSuite's printout: the PDFs attached to bills in NetSuite turned out to be quotes, order
-        # acknowledgements and proformas far more often than the supplier's tax invoice (checked 06/10/26).
+        # Bills get our own record: the PDFs attached to bills in NetSuite turned out to be quotes, order
+        # acknowledgements and proformas far more often than the supplier's tax invoice (checked 06/10/26), and
+        # NetSuite's bill printout depends on its print template.
+        if d["type"] == "VendBill":
+            return ns.bill_pdf(int(d["id"]))
         got = ns.pdf(int(d["id"]))
         return got[:2] if got else None
     except Exception as e:                      # timeout, RESTlet error: retried next sync
@@ -307,7 +310,7 @@ def attach_pdfs(T: Table, targets: list[tuple]) -> list[tuple[int, dict]]:
 
 
 def rerender_bills(dry: bool = False, project: str | None = None) -> list[str]:
-    """One-off, after NetSuite's bill print template changes: fetch each live job's bill printout again, attach it
+    """One-off: rebuild each live job's bill record (bill_pdf), attach it
     under the same name (the dashboard opens the newest) and untick Filed, so
     `python -m bhf.file_pdfs --replace-own` swaps the copy in SharePoint."""
     ns = NetSuite()
@@ -321,7 +324,7 @@ def rerender_bills(dry: bool = False, project: str | None = None) -> list[str]:
             done.append(f"{t['Project']} {t.get('Doc #')} -> {t['PDF']}")
             continue
         try:
-            got = ns.pdf(int(t["NetSuite ID"]))
+            got = ns.bill_pdf(int(t["NetSuite ID"]))
             if got:
                 T.attach(t["_id"], t["PDF"], got[1])
                 T.update([(t["_id"], {"Filed": False})])

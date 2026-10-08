@@ -1,6 +1,7 @@
 """NetSuite: SuiteQL over REST with token-based auth, plus the PDF RESTlet."""
 import base64
 import os
+import re
 from collections import defaultdict
 
 import time
@@ -307,6 +308,44 @@ class NetSuite:
              for r in lines],
             "Record generated from NetSuite by the BHF cashflow sync (NetSuite has no print layout for inventory adjustments).")
         return f"Stock_Issue_{h.get('tranid')}.pdf", pdf
+
+    def bill_pdf(self, txn_id: int):
+        """A supplier bill as a one-page BHF record (supplier, invoice no., PO, project, lines, totals), built from the
+        bill itself so it never depends on NetSuite's print template. Bills are internal: nothing here goes to customers."""
+        from .pdfmake import record_pdf
+        h = self.query(f"""SELECT t.tranid, t.trandate, t.duedate, t.memo, BUILTIN.DF(t.entity) AS sup,
+                                  BUILTIN.DF(t.terms) AS terms, BUILTIN.DF(t.currency) AS cur, t.exchangerate AS fx,
+                                  BUILTIN.DF(t.status) AS st, BUILTIN.DF(t.custbody_project) AS proj, t.foreigntotal AS ftot,
+                                  BUILTIN.DF(t.createdby) AS by_
+                           FROM transaction t WHERE t.id = {int(txn_id)}""")[0]
+        lines = self.query(f"""SELECT BUILTIN.DF(tl.item) AS item, BUILTIN.DF(tl.expenseaccount) AS acct, tl.memo,
+                                      tl.quantity AS qty, tl.rate, tl.foreignamount AS famt, tl.taxline, tl.mainline,
+                                      BUILTIN.DF(tl.createdfrom) AS po
+                               FROM transactionline tl WHERE tl.transaction = {int(txn_id)}
+                               ORDER BY tl.linesequencenumber""")
+        f = lambda v: abs(float(v or 0))
+        cur = {"US Dollar": "USD", "Australian Dollar": "AUD", "Euro": "EUR", "New Zealand Dollar": "NZD"}.get(h.get("cur"), h.get("cur") or "")
+        items = [r for r in lines if r.get("mainline") != "T" and r.get("taxline") != "T"]
+        tax = sum(f(r.get("famt")) for r in lines if r.get("taxline") == "T")
+        total, fx = f(h.get("ftot")), float(h.get("fx") or 1)
+        po = next((str(r["po"]).replace("Purchase Order #", "") for r in lines if r.get("po")), "")
+        fields = [("Supplier", h.get("sup") or ""), ("Supplier invoice no.", h.get("tranid") or "(none entered)"),
+                  ("Bill date", h.get("trandate") or ""), ("Due date", h.get("duedate") or ""), ("Terms", h.get("terms") or ""),
+                  ("Status", str(h.get("st") or "").replace("Bill : ", "")), ("Project", h.get("proj") or ""),
+                  ("Purchase order", po or "(not raised from a PO)"), ("Memo", h.get("memo") or ""),
+                  ("Total incl. tax", f"{cur} {total:,.2f}" + (f"  (tax {cur} {tax:,.2f})" if tax else "")),
+                  ("Entered by", h.get("by_") or ""), ("NetSuite internal ID", str(txn_id))]
+        if cur != "AUD":
+            fields.insert(10, ("AUD equivalent", f"AUD {total * fx:,.2f} at {fx:g}"))
+        pdf = record_pdf(
+            f"BHF supplier bill {h.get('tranid') or txn_id}",
+            [x for x in fields if x[1]],
+            [("Item / account", 22), ("Description", 38), ("Qty", 6), ("Rate", 12), (f"Amount {cur}", 13)],
+            [[re.sub(r"^BHF\d{5}\s*", "", str(r.get("item") or r.get("acct") or "")),
+              re.sub(r"\s+", " ", str(r.get("memo") or "")).replace("≥", ">=").replace("≤", "<=").replace("×", "x"), f"{f(r.get('qty')):g}" if r.get("qty") else "",
+              f"{f(r.get('rate')):,.2f}" if r.get("rate") else "", f"{f(r.get('famt')):,.2f}"] for r in items],
+            "Internal record generated from the NetSuite bill by the BHF cashflow sync. The supplier's own invoice is in NetSuite.")
+        return f"Bill_{h.get('tranid') or txn_id}.pdf", pdf
 
     def pdf(self, txn_id: int, attached: bool = False):
         """(file name, bytes, source). attached=True asks for the PDF attached to the record (a bill's supplier
