@@ -104,6 +104,10 @@ class FakeNS:
     def part_paid(self, ids):
         return {}
 
+    def bill_pdf(self, txn_id):
+        got = self.pdf(txn_id)
+        return got[:2] if got else None
+
     def pdf(self, txn_id, attached=False):
         FakeNS.calls.append(txn_id)
         if txn_id == 99:
