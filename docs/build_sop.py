@@ -53,38 +53,29 @@ b.table(["Role", "Responsible for"], [
 ], colw=[3.6, 14.2])
 
 # 4
-b.heading("4.  Starting a project (one way in)")
-b.para("There is one way a project gets onto the app. It starts when the customer PO arrives, and three things happen in "
-       "order. Nobody types forecast lines: they come from the costing.")
-b.table(["Step", "Who", "What", "Prompted by"], [
-    ["1", "Accounts", "Create the job (customer:job) in NetSuite and raise the sales order for the customer PO, coded to the job. "
-                      "For a new customer, also create its Unearned Income (21xx) and Project WIP (115x) accounts.",
-     "Customer PO received"],
-    ["2", "PM", "Create the job's SharePoint folder from the template in 2.0 Projects Contracted (named \"{code} {name}\") and "
-                "save the final costing in 1.0 Working Folder / 0.3 Costing & Cashflow.", "Same day as step 1"],
-    ["3", "Automatic", "At the next 07:30 run the app finds the new NetSuite job and its folder, reads the costing and sets the "
-                       "project up (below). The sync then pulls its NetSuite documents and creates its cashflow sheet.",
-     "Steps 1 and 2 done"],
-    ["4", "PM", "Open the project on the dashboard: check the lines, add the customer PO number and payment milestones on "
-                "Main contract, set the P&L start month and total timeline, then acknowledge \"New project\".",
-     "\"New project\" under Needs attention"],
-], colw=[1.2, 2.4, 10.4, 3.8])
-b.note("Want it now rather than at 07:30? Run  python -m bhf.setup_projects  on the filing PC.")
-b.para("What the automatic set-up creates, replicating the costing exactly (the live costing tab, i.e. the one whose price "
-       "matches the contract):")
+b.heading("4.  Starting a project: the bare minimum")
+b.para("A new project cashflow starts when these two things exist. Nothing else is needed.")
+b.table(["", "What must exist", "Who"], [
+    ["1", "A project card in Smartsheet: the job's folder in 3. BHF Systems / 2. Contracted, copied from "
+          "\"BHF Project Contracted Template\" and named \"BHF26xxx Project name\" (or a row in the Projects sheet).", "PM, at award"],
+    ["2", "The job's SharePoint folder in 2.0 Projects Contracted with the same code, and the costing saved in "
+          "1.0 Working Folder / 0.3 Costing & Cashflow.", "PM, at award"],
+], colw=[1.0, 13.4, 3.4])
+b.para("At the next 07:30 run (or straight away with  python -m bhf.setup_projects  on the filing PC) the app sets the "
+       "project up from the costing, exactly as costed:")
 b.table(["From", "Becomes"], [
     ["Each costing line with a cost (options not taken are skipped)", "One outgoing forecast line: item, supplier and extended "
-                                                                      "cost as costed; section and description in Notes; Cost Type "
-                                                                      "from the item (equipment, freight, install, contingency...)."],
-    ["Lines charged at $800/day (PM, engineering, procurement, commissioning)", "Internal Labour on the Projects row (BHF time, "
-                                                                                 "not cash out)."],
-    ["Sales order total in NetSuite (else the costing's bid price)", "Contract Value, and the incoming \"Main contract\" line."],
-    ["NetSuite job, SharePoint folder", "The Projects row (code, name, job ID, Live, folder) and the Smartsheet project folder "
-                                        "copied from the template."],
+                                                                      "cost as costed; section and description in Notes."],
+    ["Lines charged at $800/day (PM, engineering, procurement, commissioning)", "Internal Labour (BHF time, not cash out)."],
+    ["Sales order total in NetSuite, else the costing's bid price", "Contract Value and the incoming \"Main contract\" line."],
+    ["The project code", "The NetSuite job, found by its code. If accounts have not raised a document on it yet, it links "
+                         "itself at a later run."],
 ], colw=[7.0, 10.8])
-b.para("Safeguard: All live projects lists any NetSuite job with recent documents that is not set up yet. A new job waits there "
-       "until its SharePoint folder exists. Older jobs with new activity (a service order on a finished job) and jobs not to track "
-       "(R&D) are never set up automatically: add them by hand, or with Status Closed to stop them showing.", italic=True)
+b.para("Then, within two working days, the PM opens the project on the dashboard (it shows \"New project\" under Needs "
+       "attention): checks the lines, adds the customer PO number and payment milestones on Main contract, sets the P&L "
+       "start month and total timeline, and acknowledges it. Accounts code every document to the NetSuite job (section 5) "
+       "and, for a new customer, create its Unearned Income and WIP accounts.")
+b.para("Safeguard: All live projects lists any NetSuite job with recent documents that has no project card yet.", italic=True)
 
 # 5
 b.heading("5.  NetSuite rules (accounts)")

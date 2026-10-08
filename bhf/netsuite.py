@@ -126,6 +126,15 @@ class NetSuite:
             GROUP BY t.custbody_project, BUILTIN.DF(t.custbody_project)
             HAVING MAX(t.trandate) >= TO_DATE('{since}', 'YYYY-MM-DD')""")
 
+    def find_job(self, code: str) -> dict | None:
+        """The NetSuite job for a project code ('BHF26009'), found through the documents coded to it."""
+        rows = self.query(f"""
+            SELECT t.custbody_project AS job, BUILTIN.DF(t.custbody_project) AS name
+            FROM transaction t
+            WHERE t.custbody_project IS NOT NULL AND BUILTIN.DF(t.custbody_project) LIKE '{code.replace("'", "")}%'
+            GROUP BY t.custbody_project, BUILTIN.DF(t.custbody_project)""")
+        return rows[0] if rows else None
+
     def job_quotes(self, job_ids: list) -> list[dict]:
         """Memos of the POs tagged to these jobs: [{'job': id, 'vendor': name, 'memo': text}] (for quote-number matches)."""
         jobs = ",".join(str(int(float(j))) for j in job_ids if j)

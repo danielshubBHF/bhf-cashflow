@@ -1,21 +1,20 @@
-"""Set up new projects automatically from NetSuite + the job's costing.
+"""Set up new projects automatically from the job's costing.
 
-The one way a project starts:
-  1. Accounts create the job in NetSuite when the customer PO arrives, and raise the first document on it
-     (the sales order for the customer PO, or the first PO).
-  2. The PM creates the job's SharePoint folder (from the template) in 2.0 Projects Contracted and saves the final
-     costing in 1.0 Working Folder / 0.3 Costing & Cashflow.
-  3. This script (part of the daily 07:30 task on the filing PC; run it any time to do it now) finds every NetSuite
-     job with documents that isn't in the Projects sheet yet, whose SharePoint folder exists, and sets it up:
-       * a Projects row: code, name, NetSuite job ID, Live, contract value (the sales orders in NetSuite, else the
-         costing's bid price), BHF labour (the costing's $800/day lines), PM, SharePoint folder;
-       * one outgoing forecast line per costing line, exactly as costed (item, supplier, extended cost), with the
-         section and description in Notes; the $800/day BHF labour lines go to Internal Labour, not the forecast;
-       * one incoming line "Main contract" for the contract value;
-       * the project's Smartsheet folder, copied from "BHF Project Contracted Template" (the sync then writes its
-         cashflow sheet there).
-     The project shows "Set up from costing: check" under Needs attention until the PM acknowledges it.
-  Jobs with documents but no SharePoint folder stay listed on the dashboard ("not set up on the app").
+A new cashflow starts when two things exist (nothing else is needed):
+  1. a project card in Smartsheet: the job's folder under 3. BHF Systems / 2. Contracted (copied from the template,
+     named "BHFxxxxx ..."), or a Live row in the Projects sheet;
+  2. a SharePoint folder with the same code in 2.0 Projects Contracted, with the costing saved in
+     1.0 Working Folder / 0.3 Costing & Cashflow.
+At the next run (part of the daily 07:30 task on the filing PC; run it any time to do it now) the project gets:
+  * its Projects row (code, name, Live, contract value, BHF labour, PM, SharePoint folder), or the gaps in the row the
+    PM added filled in;
+  * one outgoing forecast line per costing line, exactly as costed (item, supplier, extended cost; section and
+    description in Notes); the $800/day BHF labour lines go to Internal Labour, not the forecast;
+  * an incoming "Main contract" line for the contract value (the NetSuite sales orders if any, else the bid price);
+  * its Smartsheet folder, if the card was a Projects row.
+The NetSuite job is found by its code, now or at a later run once accounts raise its first document; the sync then
+pulls its documents and writes its cashflow sheet. The project shows "New project" under Needs attention until the PM
+has checked it.
 
 Run:  python -m bhf.setup_projects            (sets up what it finds)
       python -m bhf.setup_projects --dry-run  (shows what it would do)
@@ -116,57 +115,82 @@ def copy_smartsheet_folder(name: str, h: dict) -> int | None:
     return r.json()["result"]["id"]
 
 
+def smartsheet_cards(h: dict) -> dict:
+    """{code: folder name} for the project folders ("project cards") under 3. BHF Systems / 2. Contracted."""
+    top = requests.get(f"{API}/folders/{SS_CONTRACTED}", headers=h, timeout=60).json()
+    return {f["name"].split()[0].upper(): f["name"] for f in top.get("folders", []) if re.match(r"^BHF\d{5}\b", f["name"], re.I)}
+
+
 def run(dry: bool = False) -> list[str]:
+    """Set up every project that has a project card in Smartsheet (its folder under 2. Contracted, or a Live row in the
+    Projects sheet with no forecast yet) and a SharePoint folder with the same code holding a costing. The NetSuite job
+    is found by its code (now, or at a later run once accounts raise its first document)."""
     from .netsuite import NetSuite, amount
     ns = NetSuite()
+    h = {"Authorization": f"Bearer {os.environ['SMARTSHEET_TOKEN']}"}
     P, F = Table(config.SHEETS["projects"]), Table(config.SHEETS["forecasts"])
-    projects = P.load()
-    known = [p.get("NetSuite Job ID") for p in projects if p.get("NetSuite Job ID")]
-    today = dt.date.today().isoformat()
-    jobs = ns.new_jobs(known, model.add_days(today, -180))
-    out = []
-    for j in jobs:
-        full = str(j.get("name") or "")
-        code = full.split()[0] if full else ""
-        first = model.nsdate(j.get("first_ever") or j.get("first"))
-        if not re.match(r"^BHF\d{5}$", code) or (first and model.days(first, today) > NEW_WITHIN_DAYS):
-            continue                                            # an old job with new activity: left for a person
+    projects, forecasts = P.load(), F.load()
+    by_code = {str(p.get("Project") or "").upper(): p for p in projects}
+    has_forecast = {str(f.get("Project") or "").upper() for f in forecasts}
+    cards = smartsheet_cards(h)
+    todo = {c: n for c, n in cards.items() if c not in by_code}                       # a folder, no Projects row yet
+    todo.update({c: f"{c} {p.get('Name') or ''}".strip() for c, p in by_code.items()   # a row added by hand, no forecast
+                 if p.get("Status") == "Live" and c not in has_forecast and not p.get("Setup") and re.match(r"^BHF\d{5}$", c)})
+    out, upd = [], []
+    if not dry:
+        P.ensure_column("Setup", "TEXT_NUMBER", 260)
+    for code, card in sorted(todo.items()):
         folder = find_folder(code)
-        if not folder:
-            out.append(f"{code}: no SharePoint folder in 2.0 Projects Contracted yet; waiting")
+        sheet = find_costing(folder) if folder else None
+        if not folder or not sheet:
+            out.append(f"{code}: waiting for {'its SharePoint folder in 2.0 Projects Contracted' if not folder else 'a costing in 0.3 Costing & Cashflow'}")
             continue
-        sheet = find_costing(folder)
-        docs = ns.project_docs(int(j["job"]))
+        job = ns.find_job(code)
+        docs = ns.project_docs(int(job["job"])) if job else []
         so = round(sum(amount(d) for d in docs if d["type"] == "SalesOrd"), 2)
         customer = next((d.get("party") for d in docs if d["type"] in ("SalesOrd", "CustInvc")), "") or ""
-        c = None
-        if sheet:
-            try:
-                c = costing.read(str(sheet), so or None, customer)
-            except Exception as e:
-                out.append(f"{code}: costing {sheet.name} not readable ({e})")
-        contract = so or (costing._num(c["head"].get("bid")) or costing._num(c["head"].get("calc_sell")) or c["total_sell"] if c else 0.0)
-        name = full[len(code):].strip(" -:") or folder.name[len(code):].strip()
-        source = f"{sheet.name} (tab {c['tab']})" if c else ""
-        rows, labour = forecast_rows(code, c, source, customer, contract) if c else ([], 0.0)
+        try:
+            c = costing.read(str(sheet), so or None, customer or None)
+        except Exception as e:
+            out.append(f"{code}: costing {sheet.name} not readable ({e})")
+            continue
+        customer = customer or str(c["head"].get("customer") or "")
+        contract = so or costing._num(c["head"].get("bid")) or costing._num(c["head"].get("calc_sell")) or c["total_sell"]
+        name = (card[len(code):] if card.upper().startswith(code) else folder.name[len(code):]).strip(" -:") \
+            or (str(job["name"])[len(code):].strip(" -:") if job else "")
+        source = f"{sheet.name} (tab {c['tab']})"
+        rows, labour = forecast_rows(code, c, source, customer, contract)
         setup = (f"{SETUP_NOTE} {source} on {dt.date.today():%d/%m/%y}: check the lines, add customer milestones, set the P&L timeline"
-                 if c else "No costing found in 1.0 Working Folder / 0.3 Costing & Cashflow: save it there, or add forecast lines")
-        prow = {"Project": code, "Name": name, "NetSuite Job ID": str(j["job"]), "Status": "Live",
-                "Contract Value": contract or None, "Internal Labour": labour or None,
-                "PM": str((c or {}).get("head", {}).get("engineer") or "") or None,
-                "SharePoint Folder": str(folder.relative_to(ROOT)).replace("\\", "/"), "Setup": setup}
-        out.append(f"{code} {name}: {len(rows) - 1 if rows else 0} cost lines (${sum(r['Amount'] for r in rows if r['Direction'] == 'Out'):,.0f})"
-                   f", labour ${labour:,.0f}, contract ${contract:,.0f}{' from ' + source if c else ' (no costing yet)'}")
+                 + ("" if job else "; NetSuite job not found yet (it links itself once accounts raise its first document)"))
+        values = {"Project": code, "Name": name, "NetSuite Job ID": str(job["job"]) if job else None, "Status": "Live",
+                  "Contract Value": contract or None, "Internal Labour": labour or None,
+                  "PM": str(c["head"].get("engineer") or "") or None,
+                  "SharePoint Folder": str(folder.relative_to(ROOT)).replace("\\", "/"), "Setup": setup}
+        out.append(f"{code} {name}: {len(rows) - 1} cost lines (${sum(r['Amount'] for r in rows if r['Direction'] == 'Out'):,.0f}), "
+                   f"labour ${labour:,.0f}, contract ${contract:,.0f} from {source}; NetSuite job {job['job'] if job else 'not found yet'}")
         if dry:
             continue
-        P.ensure_column("Setup", "TEXT_NUMBER", 260)
-        P.add([prow])
-        if rows:
-            F.add(rows)
-        try:
-            copy_smartsheet_folder(f"{code} {name}", {"Authorization": f"Bearer {os.environ['SMARTSHEET_TOKEN']}"})
-        except Exception as e:
-            log.warning("%s: Smartsheet folder not copied: %s", code, e)
+        row = by_code.get(code)
+        if row:                                           # keep what the PM typed; fill the gaps
+            upd.append((row["_id"], {k: v for k, v in values.items() if v not in (None, "") and not row.get(k)} | {"Setup": setup}))
+        else:
+            P.add([values])
+        F.add(rows)
+        if code not in cards:
+            try:
+                copy_smartsheet_folder(f"{code} {name}", h)
+            except Exception as e:
+                log.warning("%s: Smartsheet folder not copied: %s", code, e)
+    # projects set up before their NetSuite job existed: link the job once it appears
+    for p in projects:
+        code = str(p.get("Project") or "").upper()
+        if p.get("Status") == "Live" and not p.get("NetSuite Job ID") and re.match(r"^BHF\d{5}$", code):
+            job = ns.find_job(code)
+            if job:
+                out.append(f"{code}: linked to NetSuite job {job['job']}")
+                upd.append((p["_id"], {"NetSuite Job ID": str(job["job"])}))
+    if upd and not dry:
+        P.update(upd)
     for line in out:
         log.info(line)
     return out
