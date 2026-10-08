@@ -926,3 +926,6 @@ html.js .board.scroll{height:auto;min-height:100vh}
 
 .pipe-check{font-size:13px;color:var(--grey);margin:8px 0 0} .pipe-check b{color:var(--navy);font-family:var(--head)}
 .pipe-tbl td small{display:block;color:var(--muted);font-size:11.5px}
+
+.newjobs{flex:none;background:var(--amber-bg);border-left:3px solid var(--amber);border-radius:0 7px 7px 0;padding:8px 12px;font-size:13px;color:var(--grey)}
+.newjobs b{color:var(--amber-d)} .newjobs .nj{display:block;margin:3px 0 0 4px;color:var(--navy);font-weight:600} .newjobs .nj small{display:inline;margin-left:6px;font-weight:400} .newjobs .how{display:block;margin-top:5px;font-size:12px}

@@ -310,6 +310,7 @@ class Store:
         all_jobs = [p.get("NetSuite Job ID") for p in self.load()[0] if p.get("NetSuite Job ID")]
         since = model.add_days(today, -365)
         jobs = {"untagged": lambda: NetSuite().untagged(all_jobs, since),
+                "new_jobs": lambda: NetSuite().new_jobs(all_jobs, model.add_days(today, -180)),
                 "quotes": lambda: NetSuite().job_quotes(all_jobs),
                 "journals": lambda: NetSuite().last_journals({p["Project"]: (p.get("Unearned Acct ID"), p.get("WIP Acct ID"))
                                                               for p in self.load()[0] if p.get("Status") != "Closed"}),
@@ -325,7 +326,7 @@ class Store:
                 try:
                     out[k] = f.result()
                 except Exception:
-                    if k in ("untagged", "quotes", "journals"):        # extras: the FY card doesn't depend on them
+                    if k in ("untagged", "quotes", "journals", "new_jobs"):   # extras: the FY card doesn't depend on them
                         log.exception("NetSuite %s", k)
                         out[k] = [] if k != "journals" else {}
                     else:
