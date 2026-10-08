@@ -123,8 +123,8 @@ class NetSuite:
             FROM transaction t
             WHERE t.custbody_project IS NOT NULL AND t.custbody_project NOT IN ({known})
               AND t.type IN ('PurchOrd', 'VendBill', 'CustInvc', 'SalesOrd', 'ExpRept')
-              AND t.trandate >= TO_DATE('{since}', 'YYYY-MM-DD')
-            GROUP BY t.custbody_project, BUILTIN.DF(t.custbody_project)""")
+            GROUP BY t.custbody_project, BUILTIN.DF(t.custbody_project)
+            HAVING MAX(t.trandate) >= TO_DATE('{since}', 'YYYY-MM-DD')""")
 
     def job_quotes(self, job_ids: list) -> list[dict]:
         """Memos of the POs tagged to these jobs: [{'job': id, 'vendor': name, 'memo': text}] (for quote-number matches)."""

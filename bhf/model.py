@@ -688,6 +688,8 @@ def project_view(p: dict, forecasts: list, txns: list, schedule: list, today: st
             flag("overdue", f"Invoice {t.get('Doc #')} ${owed:,.0f} overdue since {t['Due Date']}"
                             + (f" (${part:,.0f} of ${num(t.get('Amount')):,.0f} received)" if part else ""), None, t.get("Doc #"))
     inv_share = rev["billed"] / contract if contract else 0.0
+    if p.get("Setup"):                           # set up automatically: the PM checks it once
+        flag("setup", str(p["Setup"]), None, "setup")
     for kind, text, key in housekeeping(code, lines, pt, forecasts, txns, today, inv_share):
         flag(kind, text, None, key)
 
