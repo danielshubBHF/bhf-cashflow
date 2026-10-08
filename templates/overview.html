@@ -34,16 +34,17 @@
   <div class="ct-head"><h3>Pipeline · open Systems enquiries</h3>
     <span>From the Enquiries Pipeline Mastersheet, projected into the P&amp;L by the same staged formula as live projects. Weighted = × probability. Your settings are saved in the Cashflow Database, not the enquiries sheet.</span></div>
   <div class="bud-line pipe-line">
-    <div><small>In the forecast</small><b>{{ counted|length }}</b><span>{{ counted|sum(attribute='value')|money }} of {{ pv.value|money }} open</span></div>
-    <div><small>{{ pv.fy }} by formula</small><b>{{ pv.this|money }}</b><span>if every one is won</span></div>
-    <div class="gap"><small>{{ pv.fy }} weighted</small><b>{{ pv.this_w|money }}</b><span>× each enquiry's probability</span></div>
-    <div><small>{{ pv.next_fy }} weighted</small><b>{{ pv.next_w|money }}</b><span>{{ pv.next|money }} unweighted</span></div>
-    {% if bv %}<div><small>Still to win after pipeline</small><b class="{{ 'neg' if bv.gap_after > 0 }}">{{ bv.gap_after|money }}</b><span>{{ bv.gap|money }} − {{ pv.this_w|money }} weighted pipeline</span></div>{% endif %}
+    <div><small>In the forecast</small><b>{{ counted|length }} worth {{ pv.value|money }}</b><span>of {{ pv.value_open|money }} open Systems enquiries</span></div>
+    <div><small>{{ pv.fy }} if all won</small><b>{{ pv.this|money }}</b><span>the part of their value the P&amp;L formula puts in {{ pv.fy }}</span></div>
+    <div class="gap"><small>{{ pv.fy }} expected (× probability)</small><b>{{ pv.this_w|money }}</b><span>what the budget card counts</span></div>
+    <div><small>{{ pv.next_fy }} expected (× probability)</small><b>{{ pv.next_w|money }}</b><span>{{ pv.next|money }} if all won</span></div>
+    {% if bv %}{% if bv.gap_after > 0 %}<div><small>Budget still to win after pipeline</small><b class="neg">{{ bv.gap_after|money }}</b><span>{{ bv.gap|money }} still to win − {{ pv.this_w|money }} expected</span></div>
+    {% else %}<div><small>Budget covered by the pipeline</small><b class="pos">{{ (-bv.gap_after)|money }} over</b><span>{{ pv.this_w|money }} expected vs {{ bv.gap|money }} still to win</span></div>{% endif %}{% endif %}
   </div>
 
   <div class="ct-scroll"><table class="ct pipe-tbl">
     <thead><tr><th>In the forecast</th><th class="n">Value</th><th>Start month</th><th>Timeline · months per stage</th><th class="n">Probability</th>
-      <th class="n">{{ pv.fy }}</th><th class="n">{{ pv.fy }} weighted</th><th class="n">{{ pv.next_fy }} weighted</th><th></th></tr></thead>
+      <th class="n">Lands in {{ pv.fy }}</th><th class="n">{{ pv.fy }} if won</th><th class="n">{{ pv.fy }} expected</th><th class="n">{{ pv.next_fy }} expected</th><th></th></tr></thead>
     <tbody>
     {% for r in counted %}
     <tr>
@@ -54,15 +55,18 @@
       <td class="nowrap"><input form="pf-{{ r.id }}" name="total" type="number" min="5" max="120" value="{{ r.months|sum }}" data-split="stages" style="width:4em" aria-label="Total timeline (months)"> mo
         <input form="pf-{{ r.id }}" name="stages" value="{{ r.stages }}" size="8" aria-label="Months per stage"></td>
       <td class="n"><input form="pf-{{ r.id }}" name="prob" value="{{ '%g'|format(r.prob * 100) }}" size="3" inputmode="decimal" aria-label="Probability %">%</td>
+      <td class="n">{{ (r.share_this * 100)|round|int }}%<small>{{ (r.share_next * 100)|round|int }}% in {{ pv.next_fy }}</small></td>
       <td class="n">{{ r.this|money }}</td><td class="n"><b>{{ r.this_w|money }}</b></td><td class="n">{{ r.next_w|money }}</td>
       <td class="c nowrap"><button form="pf-{{ r.id }}" class="btn ghost">Save</button>
         <form method="post" action="/pipeline/{{ r.id }}" class="inline"><input type="hidden" name="name" value="{{ r.name }}"><input type="hidden" name="hide" value="1"><button class="lnk">Hide</button></form></td>
     </tr>
-    {% else %}<tr><td colspan="9" class="muted">Nothing in the forecast yet. Open “Add to the forecast” below and set a start month (and value) on the enquiries you expect to win.</td></tr>
+    {% else %}<tr><td colspan="10" class="muted">Nothing in the forecast yet. Open “Add to the forecast” below and set a start month (and value) on the enquiries you expect to win.</td></tr>
     {% endfor %}
     </tbody>
-    {% if counted %}<tfoot><tr><td>Total</td><td class="n">{{ counted|sum(attribute='value')|money }}</td><td></td><td></td><td></td><td class="n">{{ pv.this|money }}</td><td class="n">{{ pv.this_w|money }}</td><td class="n">{{ pv.next_w|money }}</td><td></td></tr></tfoot>{% endif %}
+    {% if counted %}<tfoot><tr><td>Total</td><td class="n">{{ pv.value|money }}</td><td></td><td></td><td></td><td class="n">{{ (pv.this / pv.value * 100)|round|int if pv.value else 0 }}%</td><td class="n">{{ pv.this|money }}</td><td class="n">{{ pv.this_w|money }}</td><td class="n">{{ pv.next_w|money }}</td><td></td></tr></tfoot>{% endif %}
   </table></div>
+  {% if counted %}<p class="pipe-check">How it adds up: <b>{{ pv.value|money }}</b> value = <b>{{ pv.this|money }}</b> in {{ pv.fy }} + <b>{{ pv.next|money }}</b> in {{ pv.next_fy }}{% if pv.later >= 0.5 %} + {{ pv.later|money }} later{% endif %} (if all won).
+    Expected = each enquiry's share × its probability: <b>{{ pv.this_w|money }}</b> in {{ pv.fy }}, <b>{{ pv.next_w|money }}</b> in {{ pv.next_fy }}.</p>{% endif %}
 
   {% if todo %}
   <details class="pipe-more" id="pipe-todo"{% if not counted %} open{% endif %}>

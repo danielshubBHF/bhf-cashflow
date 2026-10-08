@@ -65,7 +65,7 @@ def pie(values) -> str:
 
 
 LOGO = (ROOT / "static" / "logo-datauri.txt").read_text(encoding="utf-8").strip()      # BHF logo, inlined once
-ASSET_V = "2610v"          # bump when static/*.css or *.js change, so browsers fetch the new file
+ASSET_V = "2610w"          # bump when static/*.css or *.js change, so browsers fetch the new file
 tpl.env.globals.update(asset_v=ASSET_V, fy_start=model.fy_start, norm=model.norm, cost_types=editor.COST_TYPES, pal=PAL, pie=pie, logo=LOGO,
                         today=lambda: dt.date.today().isoformat())
 app.include_router(auth.router)

@@ -96,7 +96,7 @@
     {% if bv.scheduled_rest is not none %}
     <div><small>Rest of {{ bv.fy }} by P&amp;L formula</small><b>{{ bv.scheduled_rest|money }}</b><span>live projects, {{ bv.month[:3] }}–Jun · {{ bv.secured|money }} contract still to recognise in all</span></div>
     <div class="gap"><small>Still to win this year</small><b class="{{ 'neg' if bv.gap > 0 }}">{{ bv.gap|money }}</b><span>budget − actual to end {{ last.month[:3] if last else '' }} − formula for the rest</span></div>
-    {% if bv.pipeline_w is defined %}<div><small>Pipeline (weighted)</small><b>{{ bv.pipeline_w|money }}</b><span><a href="#pipeline">open Systems enquiries</a> → {{ bv.gap_after|money }} still to win after pipeline</span></div>{% endif %}
+    {% if bv.pipeline_w is defined %}<div><small>Pipeline (weighted)</small><b>{{ bv.pipeline_w|money }}</b><span><a href="#pipeline">open Systems enquiries</a> → {% if bv.gap_after > 0 %}{{ bv.gap_after|money }} still to win after pipeline{% else %}budget covered, {{ (-bv.gap_after)|money }} over{% endif %}</span></div>{% endif %}
     {% else %}
     <div><small>Secured, still to recognise</small><b>{{ bv.secured|money }}</b><span>live projects' contracts not yet recognised</span></div>
     <div class="gap"><small>Still to win this year</small><b class="{{ 'neg' if bv.gap > 0 }}">{{ bv.gap|money }}</b><span>budget − actual to date − secured</span></div>

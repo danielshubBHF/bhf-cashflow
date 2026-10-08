@@ -86,12 +86,16 @@ def view(enquiries: list[dict], settings: list[dict], today: str, fy: str) -> di
                      "start_label": pl.label(start) if start else "", "needs_start": not start, "months": months, "stages": "/".join(map(str, months)),
                      "include": not s.get("Exclude"), "set": bool(s), "this": this, "next": then,
                      "this_w": round(this * prob, 2), "next_w": round(then * prob, 2),
+                     "share_this": this / value if value else 0.0, "share_next": then / value if value else 0.0,
+                     "later": round(max(0.0, value - this - then - sum(a for m, a in sched.items() if m < today[:7])), 2),
                      "their_fy": money(r.get("FY27 $") or r.get("Potential Revenue FY27")) if fy == "FY27" else None})
     for x in rows:          # in the forecast / not yet (no start month or value) / hidden by you
         x["group"] = "hidden" if not x["include"] else "todo" if x["needs_start"] or not x["value"] else "counted"
     rows.sort(key=lambda x: (not x["include"], x["needs_start"], -x["this_w"], -x["value"]))
     inc = [x for x in rows if x["include"]]
-    tot = {k: round(sum(x[k] for x in inc), 2) for k in ("value", "this", "next", "this_w", "next_w")}
+    tot = {k: round(sum(x[k] for x in inc if x["group"] == "counted"), 2)
+           for k in ("value", "this", "next", "this_w", "next_w", "later")}
+    tot["value_open"] = round(sum(x["value"] for x in inc), 2)
     return {"fy": fy, "next_fy": nxt, "rows": rows, "count": len(inc),
             "by_month": {m: round(a, 2) for m, a in sorted(by_month.items())}, "no_start": sum(1 for x in inc if x["needs_start"]),
             "no_start_value": round(sum(x["value"] for x in inc if x["needs_start"]), 2), **tot}
