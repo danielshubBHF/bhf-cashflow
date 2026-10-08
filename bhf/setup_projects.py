@@ -1,8 +1,11 @@
 """Set up new projects automatically from the job's costing.
 
-A new cashflow starts when one thing exists (nothing else is needed): the job's folder in Smartsheet under
-3. BHF Systems / 2. Contracted (copied from the template, named "BHFxxxxx ..."), with the costing workbook attached to
-any sheet in it. (A costing saved in the SharePoint folder's 1.0 Working Folder / 0.3 Costing & Cashflow also works.)
+A new cashflow starts when one thing exists (nothing else is needed), either of:
+  * the job's folder in SharePoint 2.0 Projects Contracted ("BHFxxxxx ...") with the costing saved in it (in
+    1.0 Working Folder / 0.3 Costing & Cashflow, or anywhere in the folder); or
+  * the job's folder in Smartsheet under 3. BHF Systems / 2. Contracted (copied from the template, "BHFxxxxx ..."),
+    with the costing attached to any sheet in it.
+Starting from SharePoint, the Smartsheet folder is copied from the template for you.
 At the next run (part of the daily 07:30 task on the filing PC; run it any time to do it now) the project gets:
   * its Projects row (code, name, Live, contract value, BHF labour, PM, SharePoint folder), or the gaps in the row the
     PM added filled in;
@@ -10,7 +13,7 @@ At the next run (part of the daily 07:30 task on the filing PC; run it any time 
     description in Notes); the $800/day BHF labour lines go to Internal Labour, not the forecast;
   * an incoming "Main contract" line for the contract value (the costing's bid price, replaced by the NetSuite sales
     order total once accounts raise it);
-  * its Smartsheet folder, if the card was a Projects row.
+  * its Smartsheet folder, if it started from SharePoint or a Projects row.
 NetSuite is not needed to start: the job is found by its code at a later run, once accounts create it and raise its
 first document; the sync then pulls its documents into the cashflow. The project shows "New project" under Needs attention until the PM
 has checked it.
@@ -35,7 +38,7 @@ ROOT = Path(os.getenv("SP_LOCAL_ROOT", r"C:\Users\DanielShub\BHF Technologies\6.
 CONTRACTED = ROOT / "2.0 Projects Contracted"
 SS_CONTRACTED = int(os.getenv("SS_CONTRACTED_FOLDER", "1654885033764740"))
 SS_TEMPLATE = os.getenv("SS_TEMPLATE_FOLDER", "BHF Project Contracted Template")
-NEW_WITHIN_DAYS = 120          # only jobs whose first NetSuite document is this recent count as new
+NEW_WITHIN_DAYS = 120          # only SharePoint folders / NetSuite jobs this recent count as new
 SETUP_NOTE = "Set up from costing"
 
 TYPE_RULES = [(r"install|plumbing|site work|mechanical work|civil", "Install / Site Works"),
@@ -70,10 +73,27 @@ def find_folder(code: str) -> Path | None:
 
 
 def find_costing(folder: Path) -> Path | None:
+    """The newest costing workbook in the job folder: 1.0 Working Folder / 0.3 Costing & Cashflow first, else anywhere."""
+    def costings(files):
+        return [p for p in files if p.suffix.lower() in (".xlsx", ".xlsm") and not p.name.startswith("~$")
+                and "cost" in p.name.lower() and "working cashflow" not in p.name.lower()]
     d = folder / "1.0 Working Folder" / "0.3 Costing & Cashflow"
-    files = [p for p in d.glob("*.xls*") if not p.name.startswith("~$") and "cost" in p.name.lower()
-             and "working cashflow" not in p.name.lower()] if d.exists() else []
+    files = (costings(d.glob("*.xls*")) if d.exists() else []) or costings(folder.rglob("*.xls*"))
     return max(files, key=lambda p: p.stat().st_mtime) if files else None
+
+
+def sharepoint_cards(known: set) -> dict:
+    """{code: folder name} for new job folders in SharePoint 2.0 Projects Contracted: not on the app yet and made in
+    the last NEW_WITHIN_DAYS days (so an old folder never sets itself up)."""
+    if not CONTRACTED.exists():
+        return {}
+    since = dt.datetime.now().timestamp() - NEW_WITHIN_DAYS * 86400
+    out = {}
+    for d in CONTRACTED.iterdir():
+        m = re.match(r"^(BHF\d{5})\b", d.name, re.I)
+        if d.is_dir() and m and m.group(1).upper() not in known and d.stat().st_ctime >= since:
+            out[m.group(1).upper()] = d.name
+    return out
 
 
 def forecast_rows(code: str, c: dict, source: str, customer: str, contract: float) -> tuple[list, float]:
@@ -153,7 +173,8 @@ def run(dry: bool = False) -> list[str]:
     by_code = {str(p.get("Project") or "").upper(): p for p in projects}
     has_forecast = {str(f.get("Project") or "").upper() for f in forecasts}
     cards = smartsheet_cards(h)
-    todo = {c: n for c, (n, _) in cards.items() if c not in by_code}                     # a folder, no Projects row yet
+    todo = sharepoint_cards(set(by_code))                                                # a new SharePoint folder
+    todo.update({c: n for c, (n, _) in cards.items() if c not in by_code})               # a Smartsheet folder, no row yet
     todo.update({c: f"{c} {p.get('Name') or ''}".strip() for c, p in by_code.items()   # a row added by hand, no forecast
                  if p.get("Status") == "Live" and c not in has_forecast and not p.get("Setup") and re.match(r"^BHF\d{5}$", c)})
     out, upd = [], []
@@ -164,7 +185,8 @@ def run(dry: bool = False) -> list[str]:
         sheet = smartsheet_costing(cards[code][1], h) if code in cards else None   # attached in its Smartsheet folder
         sheet = sheet or (find_costing(folder) if folder else None)                # else saved in SharePoint 0.3
         if not sheet:
-            out.append(f"{code}: waiting for its costing (attach it to a sheet in the project's Smartsheet folder)")
+            out.append(f"{code}: waiting for its costing (save it in the SharePoint job folder, or attach it to a sheet "
+                       f"in the project's Smartsheet folder)")
             continue
         job = ns.find_job(code)
         docs = ns.project_docs(int(job["job"])) if job else []

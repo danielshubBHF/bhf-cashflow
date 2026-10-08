@@ -84,3 +84,22 @@ def test_netsuite_comes_later_links_job_and_takes_sales_order(monkeypatch):
     cv = next(u for _, u in updates["projects"] if "Contract Value" in u)
     assert cv["Contract Value"] == 419480 and cv["Setup"].endswith("contract from the sales order on " + __import__("datetime").date.today().strftime("%d/%m/%y"))
     assert updates["forecasts"] == [(7, {"Amount": 419480})]                     # Main contract only, not the cost lines
+
+
+def test_new_sharepoint_folder_starts_a_project_but_old_or_known_ones_do_not(tmp_path, monkeypatch):
+    import os, time
+    for name in ("BHF26101 New Job", "BHF26001 Known Job", "BHF24005 Old Job", "Templates"):
+        (tmp_path / name).mkdir()
+    monkeypatch.setattr(sp, "CONTRACTED", tmp_path)
+    old = time.time() - 400 * 86400
+    real_stat = type(tmp_path).stat
+    monkeypatch.setattr(type(tmp_path), "stat", lambda self, **k: os.stat_result(
+        tuple(real_stat(self, **k))[:9] + (old,)) if "Old Job" in self.name else real_stat(self, **k))
+    assert sp.sharepoint_cards({"BHF26001"}) == {"BHF26101": "BHF26101 New Job"}
+
+
+def test_costing_found_anywhere_in_the_job_folder(tmp_path):
+    (tmp_path / "Docs").mkdir()
+    (tmp_path / "Docs" / "Job Costing v2.xlsx").write_bytes(b"x")
+    (tmp_path / "Docs" / "Working Cashflow converted from costing.xlsx").write_bytes(b"x")
+    assert sp.find_costing(tmp_path).name == "Job Costing v2.xlsx"

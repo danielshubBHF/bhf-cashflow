@@ -45,7 +45,7 @@ b.note("Filing runs on a PC because SharePoint is reached through OneDrive sync.
 # 3
 b.heading("3.  Who does what")
 b.table(["Role", "Responsible for"], [
-    ["Project manager", "Creates the project's Smartsheet folder with the costing attached at award (section 4); checks the set-up; keeps forecast lines, expected dates and customer milestones right; "
+    ["Project manager", "Creates the job folder (SharePoint or Smartsheet) with the costing in it at award (section 4); checks the set-up; keeps forecast lines, expected dates and customer milestones right; "
                         "clears Needs attention weekly; sets the P&L timeline."],
     ["Accounts", "Codes every document to the project in NetSuite; follows the NetSuite rules (section 5); closes POs and tags "
                  "documents when the dashboard asks; runs month-end flattening journals."],
@@ -55,11 +55,15 @@ b.table(["Role", "Responsible for"], [
 
 # 4
 b.heading("4.  Starting a project: the bare minimum")
-b.para("One step, by the PM at award. Nothing else is needed, and NetSuite does not have to exist yet.")
-b.table(["", "What must exist", "Who"], [
-    ["1", "The job's folder in Smartsheet: copy \"BHF Project Contracted Template\" into 3. BHF Systems / 2. Contracted, "
-          "name it \"BHF26xxx Project name\", and attach the costing workbook (paperclip) to any sheet in it.", "PM, at award"],
-], colw=[1.0, 13.4, 3.4])
+b.para("One step, by the PM at award: a new job folder with the costing in it, in either place. Nothing else is needed, "
+       "and NetSuite does not have to exist yet.")
+b.table(["Either", "What must exist", "Who"], [
+    ["SharePoint", "The job's folder in 6.0 Projects / 2.0 Projects Contracted, named \"BHF26xxx Project name\", with the "
+                   "costing saved in it (1.0 Working Folder / 0.3 Costing & Cashflow, or anywhere in the folder).", "PM, at award"],
+    ["Smartsheet", "The job's folder in 3. BHF Systems / 2. Contracted, copied from \"BHF Project Contracted Template\" and "
+                   "named \"BHF26xxx Project name\", with the costing workbook attached (paperclip) to any sheet in it.",
+     "PM, at award"],
+], colw=[2.6, 11.8, 3.4])
 b.para("By the next morning (07:30 run, or straight away with  python -m bhf.setup_projects  on the filing PC) the app "
        "builds the projected cashflow from the costing, exactly as costed:")
 b.table(["From", "Becomes"], [
@@ -75,9 +79,9 @@ b.para("The PM then checks the project on the dashboard (it shows \"New project\
        "customer PO number and payment milestones on Main contract, and the P&L start month and total timeline, then "
        "acknowledges it. Accounts code every document to the job (section 5) and, for a new customer, create its Unearned "
        "Income and WIP accounts.")
-b.para("A costing saved in the SharePoint job folder (1.0 Working Folder / 0.3 Costing & Cashflow) is used if none is "
-       "attached in Smartsheet. Safeguard: All live projects lists any NetSuite job with recent documents that has no "
-       "Smartsheet folder yet.", italic=True)
+b.para("Starting from SharePoint, the app copies the Smartsheet template folder for the job. Only SharePoint folders made "
+       "in the last 120 days count, so old folders never set themselves up. Safeguard: All live projects lists any "
+       "NetSuite job with recent documents that is not on the app yet.", italic=True)
 
 # 5
 b.heading("5.  NetSuite rules (accounts)")
