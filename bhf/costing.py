@@ -108,7 +108,7 @@ def pick(tabs: list, contract: float | None = None, customer: str | None = None)
     mine = _words(customer)
 
     def foreign(t):
-        theirs = _words(t["head"].get("customer"))
+        theirs = _words(t["head"].get("customer")) | (_words(t["tab"]) - {"costing", "copy", "new", "rev", "final"})
         return bool(mine and theirs and not mine & theirs)
     big = max(t["total_cost"] for t in tabs)
     tabs = [t for t in tabs if t["total_cost"] >= 0.1 * big]     # skip reference tabs (Pumps, Valves...)

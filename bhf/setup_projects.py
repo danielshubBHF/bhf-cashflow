@@ -1,19 +1,18 @@
 """Set up new projects automatically from the job's costing.
 
-A new cashflow starts when two things exist (nothing else is needed):
-  1. a project card in Smartsheet: the job's folder under 3. BHF Systems / 2. Contracted (copied from the template,
-     named "BHFxxxxx ..."), or a Live row in the Projects sheet;
-  2. a SharePoint folder with the same code in 2.0 Projects Contracted, with the costing saved in
-     1.0 Working Folder / 0.3 Costing & Cashflow.
+A new cashflow starts when one thing exists (nothing else is needed): the job's folder in Smartsheet under
+3. BHF Systems / 2. Contracted (copied from the template, named "BHFxxxxx ..."), with the costing workbook attached to
+any sheet in it. (A costing saved in the SharePoint folder's 1.0 Working Folder / 0.3 Costing & Cashflow also works.)
 At the next run (part of the daily 07:30 task on the filing PC; run it any time to do it now) the project gets:
   * its Projects row (code, name, Live, contract value, BHF labour, PM, SharePoint folder), or the gaps in the row the
     PM added filled in;
   * one outgoing forecast line per costing line, exactly as costed (item, supplier, extended cost; section and
     description in Notes); the $800/day BHF labour lines go to Internal Labour, not the forecast;
-  * an incoming "Main contract" line for the contract value (the NetSuite sales orders if any, else the bid price);
+  * an incoming "Main contract" line for the contract value (the costing's bid price, replaced by the NetSuite sales
+    order total once accounts raise it);
   * its Smartsheet folder, if the card was a Projects row.
-The NetSuite job is found by its code, now or at a later run once accounts raise its first document; the sync then
-pulls its documents and writes its cashflow sheet. The project shows "New project" under Needs attention until the PM
+NetSuite is not needed to start: the job is found by its code at a later run, once accounts create it and raise its
+first document; the sync then pulls its documents into the cashflow. The project shows "New project" under Needs attention until the PM
 has checked it.
 
 Run:  python -m bhf.setup_projects            (sets up what it finds)
@@ -116,9 +115,30 @@ def copy_smartsheet_folder(name: str, h: dict) -> int | None:
 
 
 def smartsheet_cards(h: dict) -> dict:
-    """{code: folder name} for the project folders ("project cards") under 3. BHF Systems / 2. Contracted."""
+    """{code: (folder name, folder id)} for the project folders under 3. BHF Systems / 2. Contracted."""
     top = requests.get(f"{API}/folders/{SS_CONTRACTED}", headers=h, timeout=60).json()
-    return {f["name"].split()[0].upper(): f["name"] for f in top.get("folders", []) if re.match(r"^BHF\d{5}\b", f["name"], re.I)}
+    return {f["name"].split()[0].upper(): (f["name"], f["id"]) for f in top.get("folders", [])
+            if re.match(r"^BHF\d{5}\b", f["name"], re.I)}
+
+
+def smartsheet_costing(folder_id: int, h: dict) -> Path | None:
+    """The newest costing workbook attached to any sheet in the project's Smartsheet folder, downloaded to a temp file."""
+    import tempfile
+    d = requests.get(f"{API}/folders/{folder_id}", headers=h, timeout=60).json()
+    found = []
+    for sh in d.get("sheets", []):
+        att = requests.get(f"{API}/sheets/{sh['id']}/attachments", headers=h, timeout=60, params={"pageSize": 200}).json()
+        found += [(a.get("createdAt") or "", sh["id"], a) for a in att.get("data", [])
+                  if a.get("attachmentType") == "FILE" and re.search(r"cost", a["name"], re.I)
+                  and a["name"].lower().endswith((".xlsx", ".xlsm"))]
+    if not found:
+        return None
+    _, sid, a = max(found, key=lambda x: x[0])
+    url = requests.get(f"{API}/sheets/{sid}/attachments/{a['id']}", headers=h, timeout=60).json()["url"]
+    out = Path(tempfile.gettempdir()) / "bhf_costing" / a["name"]
+    out.parent.mkdir(exist_ok=True)
+    out.write_bytes(requests.get(url, timeout=120).content)
+    return out
 
 
 def run(dry: bool = False) -> list[str]:
@@ -133,7 +153,7 @@ def run(dry: bool = False) -> list[str]:
     by_code = {str(p.get("Project") or "").upper(): p for p in projects}
     has_forecast = {str(f.get("Project") or "").upper() for f in forecasts}
     cards = smartsheet_cards(h)
-    todo = {c: n for c, n in cards.items() if c not in by_code}                       # a folder, no Projects row yet
+    todo = {c: n for c, (n, _) in cards.items() if c not in by_code}                     # a folder, no Projects row yet
     todo.update({c: f"{c} {p.get('Name') or ''}".strip() for c, p in by_code.items()   # a row added by hand, no forecast
                  if p.get("Status") == "Live" and c not in has_forecast and not p.get("Setup") and re.match(r"^BHF\d{5}$", c)})
     out, upd = [], []
@@ -141,9 +161,10 @@ def run(dry: bool = False) -> list[str]:
         P.ensure_column("Setup", "TEXT_NUMBER", 260)
     for code, card in sorted(todo.items()):
         folder = find_folder(code)
-        sheet = find_costing(folder) if folder else None
-        if not folder or not sheet:
-            out.append(f"{code}: waiting for {'its SharePoint folder in 2.0 Projects Contracted' if not folder else 'a costing in 0.3 Costing & Cashflow'}")
+        sheet = smartsheet_costing(cards[code][1], h) if code in cards else None   # attached in its Smartsheet folder
+        sheet = sheet or (find_costing(folder) if folder else None)                # else saved in SharePoint 0.3
+        if not sheet:
+            out.append(f"{code}: waiting for its costing (attach it to a sheet in the project's Smartsheet folder)")
             continue
         job = ns.find_job(code)
         docs = ns.project_docs(int(job["job"])) if job else []
@@ -151,22 +172,24 @@ def run(dry: bool = False) -> list[str]:
         customer = next((d.get("party") for d in docs if d["type"] in ("SalesOrd", "CustInvc")), "") or ""
         customer = re.sub(r"^BHF\d{5}.*", "", customer).strip()     # invoices name the job, not the customer
         try:
-            c = costing.read(str(sheet), so or None, customer or None)
+            c = costing.read(str(sheet), so or None, f"{customer} {card}".strip() or None)   # the card name tells our tab apart from copied ones
         except Exception as e:
             out.append(f"{code}: costing {sheet.name} not readable ({e})")
             continue
         customer = customer or str(c["head"].get("customer") or "").split(" - ")[0].strip()
         contract = so or costing._num(c["head"].get("bid")) or costing._num(c["head"].get("calc_sell")) or c["total_sell"]
-        name = (card[len(code):] if card.upper().startswith(code) else folder.name[len(code):]).strip(" -:") \
+        name = (card[len(code):] if card.upper().startswith(code) else (folder.name[len(code):] if folder else "")).strip(" -:") \
             or (str(job["name"])[len(code):].strip(" -:") if job else "")
         source = f"{sheet.name} (tab {c['tab']})"
         rows, labour = forecast_rows(code, c, source, customer, contract)
         setup = (f"{SETUP_NOTE} {source} on {dt.date.today():%d/%m/%y}: check the lines, add customer milestones, set the P&L timeline"
+                 + ("; contract from the sales order" if so else "; contract from the costing's bid price until a sales order is raised")
                  + ("" if job else "; NetSuite job not found yet (it links itself once accounts raise its first document)"))
         values = {"Project": code, "Name": name, "NetSuite Job ID": str(job["job"]) if job else None, "Status": "Live",
                   "Contract Value": contract or None, "Internal Labour": labour or None,
                   "PM": str(c["head"].get("engineer") or "") or None,
-                  "SharePoint Folder": str(folder.relative_to(ROOT)).replace("\\", "/"), "Setup": setup}
+                  "SharePoint Folder": str(folder.relative_to(ROOT)).replace("\\", "/") if folder else None,
+                  "Setup": setup}
         out.append(f"{code} {name}: {len(rows) - 1} cost lines (${sum(r['Amount'] for r in rows if r['Direction'] == 'Out'):,.0f}), "
                    f"labour ${labour:,.0f}, contract ${contract:,.0f} from {source}; NetSuite job {job['job'] if job else 'not found yet'}")
         if dry:
@@ -182,16 +205,35 @@ def run(dry: bool = False) -> list[str]:
                 copy_smartsheet_folder(f"{code} {name}", h)
             except Exception as e:
                 log.warning("%s: Smartsheet folder not copied: %s", code, e)
-    # projects set up before their NetSuite job existed: link the job once it appears
+    # projects set up from a costing: link the NetSuite job once accounts create it, and once a sales order is raised
+    # replace the costing's bid price with it (only while Contract Value / Main contract still hold the set-up figure)
+    fupd = []
     for p in projects:
         code = str(p.get("Project") or "").upper()
-        if p.get("Status") == "Live" and not p.get("NetSuite Job ID") and re.match(r"^BHF\d{5}$", code):
+        if p.get("Status") != "Live" or not re.match(r"^BHF\d{5}$", code) or not p.get("Setup"):
+            continue
+        job_id = p.get("NetSuite Job ID")
+        if not job_id:
             job = ns.find_job(code)
-            if job:
-                out.append(f"{code}: linked to NetSuite job {job['job']}")
-                upd.append((p["_id"], {"NetSuite Job ID": str(job["job"])}))
+            if not job:
+                continue
+            job_id = job["job"]
+            out.append(f"{code}: linked to NetSuite job {job_id}")
+            upd.append((p["_id"], {"NetSuite Job ID": str(job_id)}))
+        if "contract from the sales order" in str(p.get("Setup")):
+            continue                                                   # already taken
+        so = round(sum(amount(d) for d in ns.project_docs(int(job_id)) if d["type"] == "SalesOrd"), 2)
+        was = float(p.get("Contract Value") or 0)
+        if so > 0 and abs(so - was) > 1:
+            out.append(f"{code}: contract ${was:,.0f} -> ${so:,.0f} from the NetSuite sales orders")
+            upd.append((p["_id"], {"Contract Value": so,
+                                   "Setup": f"{p['Setup']}; contract from the sales order on {dt.date.today():%d/%m/%y}"}))
+            fupd += [(f["_id"], {"Amount": so}) for f in forecasts if str(f.get("Project") or "").upper() == code
+                     and f.get("Item") == "Main contract" and abs(float(f.get("Amount") or 0) - was) <= 1]
     if upd and not dry:
         P.update(upd)
+    if fupd and not dry:
+        F.update(fupd)
     for line in out or ["Set-up: nothing new (no project card without a cashflow)"]:
         log.info(line)
     return out

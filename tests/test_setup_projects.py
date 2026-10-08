@@ -50,3 +50,37 @@ def test_pick_matches_customer_by_words_and_skips_reference_tabs():
             tab("Pumps", None, 1, 0)]
     assert costing.pick(tabs, None, "CCEP Fiji Limited")["tab"] == "Live"
     assert costing.pick(tabs[1:], None, "CCEP Fiji")["tab"] == "Old"        # only a foreign tab: still used, never Pumps
+
+
+def test_netsuite_comes_later_links_job_and_takes_sales_order(monkeypatch):
+    """Set up from the costing with no NetSuite job: a later run links the job and swaps the bid price for the SO."""
+    from bhf import netsuite
+    note = "Set up from costing c.xlsx (tab T) on 08/10/26; contract from the costing's bid price until a sales order is raised"
+    tables = {"projects": [{"_id": 1, "Project": "BHF26099", "Status": "Live", "Contract Value": 400000, "Setup": note}],
+              "forecasts": [{"_id": 7, "Project": "BHF26099", "Item": "Main contract", "Amount": 400000},
+                            {"_id": 8, "Project": "BHF26099", "Item": "Pump", "Amount": 5000}]}
+    updates = {}
+
+    class T:
+        def __init__(self, sid): self.k = "projects" if sid == "P" else "forecasts"
+        def load(self): return [dict(r) for r in tables[self.k]]
+        def update(self, u): updates.setdefault(self.k, []).extend(u)
+        def ensure_column(self, *a): pass
+        def add(self, rows): raise AssertionError("nothing new to add")
+
+    class NS:
+        def find_job(self, code): return {"job": 555, "name": "BHF26099 Test"}
+        def project_docs(self, job): return [{"type": "SalesOrd", "aud": -419480}]
+
+    monkeypatch.setenv("SMARTSHEET_TOKEN", "x")
+    monkeypatch.setattr(sp.config, "SHEETS", {"projects": "P", "forecasts": "F"})
+    monkeypatch.setattr(sp, "Table", T)
+    monkeypatch.setattr(sp, "smartsheet_cards", lambda h: {"BHF26099": ("BHF26099 Test", 1)})
+    monkeypatch.setattr(netsuite, "NetSuite", NS)
+    out = sp.run()
+    assert "BHF26099: linked to NetSuite job 555" in out
+    p = next(u for _, u in updates["projects"] if "NetSuite Job ID" in u)
+    assert p["NetSuite Job ID"] == "555"
+    cv = next(u for _, u in updates["projects"] if "Contract Value" in u)
+    assert cv["Contract Value"] == 419480 and cv["Setup"].endswith("contract from the sales order on " + __import__("datetime").date.today().strftime("%d/%m/%y"))
+    assert updates["forecasts"] == [(7, {"Amount": 419480})]                     # Main contract only, not the cost lines
