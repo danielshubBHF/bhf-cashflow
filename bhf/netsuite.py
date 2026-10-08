@@ -115,8 +115,9 @@ class NetSuite:
         return rows
 
     def new_jobs(self, known_ids: list, since: str) -> list[dict]:
-        """NetSuite jobs with POs, bills, invoices, sales orders or expense claims since `since` that aren't in the
-        Projects sheet at all (any status): a project that started without being set up on the app."""
+        """NetSuite jobs whose FIRST PO, bill, invoice, sales order or expense claim is on or after `since` (the app's
+        go-live) and that aren't in the Projects sheet at all (any status): a new project not set up on the app.
+        Jobs that started before go-live never show, however active they are."""
         known = ",".join(str(int(float(j))) for j in known_ids if j) or "0"
         return self.query(f"""
             SELECT t.custbody_project AS job, BUILTIN.DF(t.custbody_project) AS name, COUNT(*) AS docs,
@@ -125,7 +126,7 @@ class NetSuite:
             WHERE t.custbody_project IS NOT NULL AND t.custbody_project NOT IN ({known})
               AND t.type IN ('PurchOrd', 'VendBill', 'CustInvc', 'SalesOrd', 'ExpRept')
             GROUP BY t.custbody_project, BUILTIN.DF(t.custbody_project)
-            HAVING MAX(t.trandate) >= TO_DATE('{since}', 'YYYY-MM-DD')""")
+            HAVING MIN(t.trandate) >= TO_DATE('{since}', 'YYYY-MM-DD')""")
 
     def find_job(self, code: str) -> dict | None:
         """The NetSuite job for a project code ('BHF26009'), found through the documents coded to it."""

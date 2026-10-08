@@ -30,6 +30,7 @@ SHEETS = {
 SHEET_FLAGS = int(os.getenv("SHEET_FLAGS", "6273607929122692") or 0)
 SHEET_PIPELINE = int(os.getenv("SHEET_PIPELINE", "1000909044928388") or 0)       # your start month / split / probability per enquiry
 SHEET_ENQUIRIES = int(os.getenv("SHEET_ENQUIRIES", "7290402377781124"))   # 1. Enquiries Pipeline Mastersheet (read only)     # "Flag Log": acknowledged "needs attention" items
+GO_LIVE = os.getenv("GO_LIVE", "2026-10-08")   # NetSuite jobs started before this are never flagged as "not set up on the app"
 NS_ACCOUNT = os.getenv("NS_ACCOUNT", "5142660")
 NS_RESTLET_SCRIPT = os.getenv("NS_RESTLET_SCRIPT", "customscript_bhf_render_pdf")
 NS_RESTLET_DEPLOY = os.getenv("NS_RESTLET_DEPLOY", "customdeploy_bhf_render_pdf")
