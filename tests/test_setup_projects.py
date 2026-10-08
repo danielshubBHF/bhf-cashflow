@@ -41,3 +41,12 @@ def test_set_up_project_is_flagged_until_checked():
     p = {**PROJECTS[0], "Setup": "Set up from costing x.xlsx (tab T) on 08/10/26: check the lines"}
     v = project_view(p, FORECASTS, TXNS, SCHEDULE, "2026-10-08")
     assert any(m["kind"] == "setup" for m in v["flag_meta"])
+
+
+def test_pick_matches_customer_by_words_and_skips_reference_tabs():
+    from bhf import costing
+    tab = lambda name, cust, cost, bid: {"tab": name, "head": {"customer": cust, "bid": bid}, "total_cost": cost, "total_sell": 0}
+    tabs = [tab("Live", "CCEP - Fiji UF60 + ACF", 1_125_891, 1_420_000), tab("Old", "Other Co - plant", 900_000, 1_200_000),
+            tab("Pumps", None, 1, 0)]
+    assert costing.pick(tabs, None, "CCEP Fiji Limited")["tab"] == "Live"
+    assert costing.pick(tabs[1:], None, "CCEP Fiji")["tab"] == "Old"        # only a foreign tab: still used, never Pumps

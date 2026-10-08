@@ -97,12 +97,21 @@ def _key(s) -> str:
     return re.sub(r"[^a-z0-9]", "", str(s or "").lower())
 
 
+def _words(s) -> set:
+    """The name's words of 3+ letters (job codes and filler left out), so 'CCEP - Fiji UF60' meets 'CCEP Fiji Limited'."""
+    return {w for w in re.findall(r"[a-z]{3,}", str(s or "").lower()) if w not in {"the", "and", "pty", "ltd", "limited", "bhf"}}
+
+
 def pick(tabs: list, contract: float | None = None, customer: str | None = None) -> dict:
     """The live costing tab: the leftmost one not copied from another customer's job; switched to another tab only
     when the leftmost is more than 2% off the contract and that tab is within 0.5% of it."""
+    mine = _words(customer)
+
     def foreign(t):
-        c = _key(t["head"].get("customer"))
-        return bool(customer and c and c != "0" and c not in _key(customer) and _key(customer)[:6] not in c)
+        theirs = _words(t["head"].get("customer"))
+        return bool(mine and theirs and not mine & theirs)
+    big = max(t["total_cost"] for t in tabs)
+    tabs = [t for t in tabs if t["total_cost"] >= 0.1 * big]     # skip reference tabs (Pumps, Valves...)
     ok = [t for t in tabs if not foreign(t)] or tabs
 
     def off(t):

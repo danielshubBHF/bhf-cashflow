@@ -149,12 +149,13 @@ def run(dry: bool = False) -> list[str]:
         docs = ns.project_docs(int(job["job"])) if job else []
         so = round(sum(amount(d) for d in docs if d["type"] == "SalesOrd"), 2)
         customer = next((d.get("party") for d in docs if d["type"] in ("SalesOrd", "CustInvc")), "") or ""
+        customer = re.sub(r"^BHF\d{5}.*", "", customer).strip()     # invoices name the job, not the customer
         try:
             c = costing.read(str(sheet), so or None, customer or None)
         except Exception as e:
             out.append(f"{code}: costing {sheet.name} not readable ({e})")
             continue
-        customer = customer or str(c["head"].get("customer") or "")
+        customer = customer or str(c["head"].get("customer") or "").split(" - ")[0].strip()
         contract = so or costing._num(c["head"].get("bid")) or costing._num(c["head"].get("calc_sell")) or c["total_sell"]
         name = (card[len(code):] if card.upper().startswith(code) else folder.name[len(code):]).strip(" -:") \
             or (str(job["name"])[len(code):].strip(" -:") if job else "")
@@ -191,7 +192,7 @@ def run(dry: bool = False) -> list[str]:
                 upd.append((p["_id"], {"NetSuite Job ID": str(job["job"])}))
     if upd and not dry:
         P.update(upd)
-    for line in out:
+    for line in out or ["Set-up: nothing new (no project card without a cashflow)"]:
         log.info(line)
     return out
 
