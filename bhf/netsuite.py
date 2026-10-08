@@ -345,7 +345,7 @@ class NetSuite:
               re.sub(r"\s+", " ", str(r.get("memo") or "")).replace("≥", ">=").replace("≤", "<=").replace("×", "x"), f"{f(r.get('qty')):g}" if r.get("qty") else "",
               f"{f(r.get('rate')):,.2f}" if r.get("rate") else "", f"{f(r.get('famt')):,.2f}"] for r in items],
             "Internal record generated from the NetSuite bill by the BHF cashflow sync. The supplier's own invoice is in NetSuite.")
-        return f"Bill_{h.get('tranid') or txn_id}.pdf", pdf
+        return "Bill_" + re.sub(r"[^A-Za-z0-9_-]", "_", str(h.get("tranid") or txn_id)) + ".pdf", pdf     # as NetSuite names it
 
     def pdf(self, txn_id: int, attached: bool = False):
         """(file name, bytes, source). attached=True asks for the PDF attached to the record (a bill's supplier
