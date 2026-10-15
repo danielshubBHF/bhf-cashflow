@@ -29,7 +29,7 @@ b.table(["Part", "What it does", "When"], [
     ["NetSuite", "Source of truth for POs, bills, invoices, payments and the P&L.", "As accounts work"],
     ["Sync (Render)", "Pulls every document coded to a project into Smartsheet, links it to a forecast line, reads payment "
                       "terms from PO PDFs, attaches PDFs, adds variation lines, updates each project's cashflow sheet.",
-     "07:00 and 13:00 weekdays"],
+     "07:00 and 13:00 daily"],
     ["Smartsheet: 0. Cashflow Database", "The app's database (3. BHF Systems / 2. Contracted / 0. Cashflow Database): Projects, "
                                          "Forecasts, Transactions, Payment Schedule, Flag Log, Pipeline.", "Always"],
     ["Project cashflow sheet", "\"3. {code} {name} Cashflow\" in each job folder. Readable cashflow; forecast lines can be edited "
@@ -154,7 +154,7 @@ b.heading("11.  If something looks wrong")
 b.table(["Symptom", "Check"], [
     ["Data as at time is old", "Render: bhf-cashflow-sync logs; press Refresh on the dashboard."],
     ["A PO or bill is missing", "Is the Project set in NetSuite? Untagged in NS flags list likely ones."],
-    ["PDF not yet filed", "filing.log on the filing PC; the PC must be on and signed in."],
+    ["PDF not yet filed", "filing.log on the filing PC (a FAILED line says why); the PC must be on and signed in."],
     ["Numbers differ from NetSuite", "Cash ties to NetSuite to the cent; P&L uses accounts 4071-4079 (not Unearned / WIP "
                                      "movements, which include the 1 July netting journal)."],
 ], colw=[5.0, 12.8])

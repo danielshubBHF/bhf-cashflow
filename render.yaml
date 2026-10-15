@@ -17,7 +17,7 @@ services:
     runtime: python
     plan: starter
     region: singapore
-    schedule: "0 20,2 * * 1-5"      # 07:00 and 13:00 Melbourne (AEDT). Use "0 21,3" in AEST.
+    schedule: "0 20,2 * * *"        # 07:00 and 13:00 Melbourne every day (AEDT; UTC weekdays are a day behind, so no 1-5). Use "0 21,3" in AEST.
     buildCommand: pip install -r requirements.txt
     startCommand: python -m bhf.sync
     envVars:
