@@ -78,7 +78,7 @@ def test_supplier_po_becomes_a_variation_only_when_its_line_is_fully_ordered():
     po = {"type": "PurchOrd", "tranid": "PO006400", "trandate": "12/10/2026", "aud": "9000", "party": "Welkin"}
     assert auto_variation(pf, po, "PO006400", {"Welkin - system supply": 120000}) is None     # still forecast to order
     line = auto_variation(pf, po, "PO006400", {"Welkin - system supply": 170000})
-    assert line["Item"] == "Welkin - variation PO006400" and line["Direction"] == "Out" and line["Amount"] == 9000
+    assert line["Item"] == "Welkin - VR01 - PO006400" and line["Direction"] == "Out" and line["Amount"] == 9000
     other = {**po, "party": "RS Online"}
     assert auto_variation(pf, other, "PO006401", {"Welkin - system supply": 170000}) is None  # no line: stays Unlinked
 
@@ -100,3 +100,15 @@ def test_bill_without_supplier_reference_gets_a_distinct_number():
     assert doc_no({"type": "VendBill", "tranid": "", "id": "327062"}) == "no ref #327062"
     assert doc_no({"type": "VendBill", "tranid": "Bill", "id": "327063"}) == "no ref #327063"
     assert doc_no({"type": "PurchOrd", "tranid": "PO005570", "id": "9"}) == "PO005570"
+
+
+def test_new_supplier_variation_is_named_like_its_other_lines_and_numbered():
+    from bhf.sync import auto_variation
+    pf = [{"Item": "Bondalti - main system supply", "Direction": "Out", "Party": "Enkrott", "Amount": 100, "PO / Order #": "PO1"},
+          {"Item": "Bondalti - VR01 - PO2", "Direction": "Out", "Party": "Enkrott", "Amount": 10, "PO / Order #": "PO2",
+           "Cost Type": "Variation", "Closed": True},
+          {"Item": "Bondalti - VR02 - PO3", "Direction": "Out", "Party": "Enkrott", "Amount": 10, "PO / Order #": "PO3",
+           "Cost Type": "Variation"}]
+    po = {"type": "PurchOrd", "party": "Enkrott - Gestao e Tratamento de Aguas, S.A", "aud": 5, "trandate": "4/11/2026", "tranid": "PO4"}
+    line = auto_variation(pf, po, "PO4", {"Bondalti - main system supply": 100, "Bondalti - VR02 - PO3": 10})
+    assert line["Item"] == "Bondalti - VR03 - PO4"          # supplier's own name, next number (closed VR01 counted)

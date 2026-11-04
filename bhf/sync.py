@@ -123,6 +123,16 @@ def link_forecast(forecasts: list[dict], d: dict, order: str):
 AUTO_NOTE = "Auto-added by the sync"
 
 
+def variation_name(lines: list[dict], party: str | None) -> str:
+    """"Bondalti - VR06": the name the PM already uses for this supplier (the part before " - " of its lines, so
+    Enkrott's lines stay "Bondalti"), and the next variation number after the POs already on its variation lines."""
+    prefixes = [str(f["Item"]).split(" - ")[0].strip() for f in lines if " - " in str(f.get("Item") or "")]
+    prefix = max(set(prefixes), key=prefixes.count) if prefixes else clean_vendor(party or "")
+    var = [f for f in lines if f.get("Cost Type") == "Variation" or re.search(r"variation|\bVR\d", str(f.get("Item")), re.I)]
+    done = {norm(x) for f in var for x in po_list(f)}
+    return f"{prefix} - VR{len(done) + 1:02d}"
+
+
 def auto_variation(pf: list[dict], d: dict, order: str, ordered: dict) -> dict | None:
     """A new forecast line for a variation the PM hasn't set up yet, or None.
       customer: a new invoice quoting a customer PO that no incoming line lists (once the contract PO is known)
@@ -146,7 +156,9 @@ def auto_variation(pf: list[dict], d: dict, order: str, ordered: dict) -> dict |
                  and party and (vkey(f["Party"]) in party or party in vkey(f["Party"]))]
         if not lines or any(ordered.get(f["Item"], 0.0) < 0.98 * float(f.get("Amount") or 0) for f in lines):
             return None                                 # no line for this supplier, or one still has forecast to order
-        return {"Item": f"{clean_vendor(d.get('party'))} - variation {order}", "Direction": "Out", "Cost Type": "Variation",
+        everyone = [f for f in pf if f.get("Direction") == "Out" and f.get("Party")           # closed ones too, for the VR count
+                    and (vkey(f["Party"]) in party or party in vkey(f["Party"]))]
+        return {"Item": f"{variation_name(everyone, d.get('party'))} - {order}", "Direction": "Out", "Cost Type": "Variation",
                 "Party": lines[0]["Party"], "Amount": amt, "PO / Order #": order, "Expected Date": when,
                 "Notes": f"{AUTO_NOTE} from {order} on {when}: {lines[0]['Item']} was already fully ordered. "
                          f"Check it's a variation, its value and payment terms"}
