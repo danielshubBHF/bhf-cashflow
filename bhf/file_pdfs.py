@@ -87,7 +87,50 @@ def fit(folder: Path, name: str) -> str:
     tail = next((t for t in (" - Purchase Order.pdf", " - Customer Invoice.pdf") if rest.endswith(t)), ".pdf")
     mid = rest[:len(rest) - len(tail)]
     mid = mid[:max(len(mid) - over, 8)].rstrip(" -.")
-    return f"{head} - {mid}{tail}"
+    for short in (f"{head} - {mid}{tail}", f"{head}{tail}", f"{head}.pdf"):     # very deep folders: drop the supplier
+        if len(str(folder / short)) <= MAX_PATH:
+            return short
+    return f"{head}.pdf"
+
+
+PR_DATE = re.compile(r"PR[_ -]?(\d{2})(\d{2})(\d{2})", re.I)     # "..._PR_041126ds(0).docx" = 4 Nov 2026
+
+
+def requisition_folder(supplier_dir: Path, po_date: str) -> Path | None:
+    """The subfolder holding this PO's purchase requisition: the PM files the PR ("..._PR_041126ds(0).docx") in its
+    own folder (Variation/VR05_..., System Supply, Engineering Design) before the PO is raised, dated the same day
+    or up to 3 days before. The PO goes next to it. None unless exactly one folder fits."""
+    import datetime as dt
+    try:
+        po = dt.date.fromisoformat(str(po_date)[:10])
+    except ValueError:
+        return None
+    best = {}
+    for f in supplier_dir.rglob("*"):
+        m = PR_DATE.search(f.name)
+        if not m or f.is_dir() or f.parent == supplier_dir or "archive" in str(f.parent).lower():   # is_file() misses OneDrive online-only files
+            continue
+        try:
+            pr = dt.date(2000 + int(m.group(3)), int(m.group(2)), int(m.group(1)))
+        except ValueError:
+            continue
+        gap = (po - pr).days
+        if 0 <= gap <= 3:
+            best[f.parent] = min(gap, best.get(f.parent, 99))
+    if not best:
+        return None
+    nearest = min(best.values())
+    hits = [d for d, g in best.items() if g == nearest]
+    return hits[0] if len(hits) == 1 else None
+
+
+def made_here(existing: str, name: str) -> bool:
+    """True when `existing` is the file this script names `name`, allowing for a name fit() shortened
+    ("PO006366 - Enkrott - Gestao e Tratamento - Purchase Order.pdf", "PO006388.pdf")."""
+    def head(n):
+        return n.split(" - ", 1)[0].removesuffix(".pdf")
+
+    return existing == name or (head(existing) == head(name) and existing.lower().endswith(".pdf"))
 
 
 @dataclass
@@ -145,6 +188,8 @@ def plan_one(t: dict, project_dir: Path, code: str, others: dict[str, list[Path]
         if folder is None:
             p.outcome, p.note = "NEEDS_YOU", how
             return p
+        if k == "PO" and folder.is_dir() and (req := requisition_folder(folder, t.get("Date"))):
+            folder, how = req, f"next to its requisition in {req.name}"
         num = t["Doc #"] if k == "PO" else doc_number(t)
         if k == "PO":
             hits = [f for f in tree if norm(num) in norm(f.name)]
@@ -175,7 +220,11 @@ def plan_one(t: dict, project_dir: Path, code: str, others: dict[str, list[Path]
         hits = [f for f in files_under(offer_dir) if norm(t["Doc #"]) in norm(f.name)]
     p.folder, p.name = folder, fit(folder, file_name(t, code))
     own = [f for f in hits if f.name == p.name] or ([folder / p.name] if (folder / p.name).exists() else [])
-    if replace_own and own and all(f.name == p.name for f in hits):
+    mine = [f for f in hits if made_here(f.name, p.name)]       # this script's naming, whatever length it was cut to
+    if mine and len(mine) == len(hits) and mine[0].parent != folder and folder.is_dir():
+        own = mine
+        p.outcome, p.matches = "MOVE", [str(own[0].relative_to(project_dir))]      # e.g. a PO filed before its PR rule
+    elif replace_own and own and all(f.name == p.name for f in hits):
         p.outcome, p.matches = "REPLACE", [str(own[0].relative_to(project_dir))]    # only a file this script made
     elif hits:
         p.outcome, p.matches = "ALREADY_FILED", [str(f.relative_to(project_dir)) for f in hits[:3]]
@@ -212,7 +261,9 @@ def run(dry: bool = True, project: str | None = None, root: Path = ROOT, replace
         if dry or p.outcome == "NEEDS_YOU":
             continue
         try:
-            if p.outcome == "REPLACE":                       # our own earlier file, e.g. a bill printout
+            if p.outcome == "MOVE":
+                os.replace(root / projects[t["Project"]]["SharePoint Folder"] / p.matches[0], p.folder / p.name)
+            elif p.outcome == "REPLACE":                     # our own earlier file, e.g. a bill printout
                 data = download(T, t)
                 with open(p.folder / p.name, "wb") as f:
                     f.write(data)
