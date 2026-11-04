@@ -93,6 +93,52 @@ def parse_tab(rows: list) -> dict | None:
             "total_cost": round(sum(l["cost"] for l in lines), 2), "total_sell": round(sum(l["sell"] for l in lines), 2)}
 
 
+def parse_simple(rows: list) -> dict | None:
+    """The short one-sheet costing (small jobs, e.g. BHF26006): a header row with "Description" and "Cost AUD"
+    (Item No | Description | Supplier | Cost Euro | Hrs or daily rate | Labour rate $/hr | Cost AUD | Comments).
+    Numbered rows are the lines; a row with hours / days at a BHF rate is BHF labour; the "Sell price for total"
+    row is the bid price."""
+    hdr = next((i for i, r in enumerate(rows) if r and "Description" in [_txt(x) for x in r]
+                and "Cost AUD" in [_txt(x) for x in r]), None)
+    if hdr is None:
+        return None
+    col = {}
+    for j, n in enumerate(_txt(x) for x in rows[hdr]):
+        if n and n not in col:
+            col[n] = j
+    no, desc, cost = col.get("Item No"), col["Description"], col["Cost AUD"]
+    supp, qty = col.get("Supplier"), col.get("Hrs or daily rate")
+    width = max(col.values()) + 2
+    head, lines, raw = {}, [], []
+    for r in rows[hdr + 1:]:
+        cells = list(r or ()) + [None] * width
+        text = " ".join(_txt(x) for x in cells)
+        if re.search(r"sell price for total", text, re.I):
+            head["bid"] = next((x for x in cells if _num(x) and _num(x) > 0), None)
+        if no is None or _num(cells[no]) is None or not _num(cells[cost]):
+            continue
+        raw.append(cells)
+    bhf_rates = set()
+    for cells in raw:                              # rates charged for BHF people
+        who = f"{_txt(cells[desc])} {_txt(cells[supp]) if supp is not None else ''}"
+        if re.search(r"\bBHF\b", who) and qty is not None and _num(cells[qty]):
+            bhf_rates |= {_num(x) for x in cells[qty + 1:cost] if _num(x)}
+    for cells in raw:
+        name, supplier = _txt(cells[desc]), _txt(cells[supp]) if supp is not None else ""
+        rate = [_num(x) for x in cells[qty + 1:cost] if _num(x)] if qty is not None and _num(cells[qty]) else []
+        labour = bool(rate) and (bool(re.search(r"\bBHF\b", f"{name} {supplier}")) or bool(set(rate) & bhf_rates))
+        lines.append({"section": "", "item": name, "supplier": supplier,
+                      "desc": _txt(cells[col["Comments"]]) if "Comments" in col else "",
+                      "qty": _num(cells[qty]) if qty is not None else None, "cost": round(_num(cells[cost]), 2), "sell": 0.0,
+                      "labour": labour, "contingency": bool(CONTINGENCY.search(name))})
+    if not lines:
+        return None
+    return {"head": head, "lines": lines, "sections": {"Costing": round(sum(l["cost"] for l in lines), 2)},
+            "labour": round(sum(l["cost"] for l in lines if l["labour"]), 2),
+            "contingency": round(sum(l["cost"] for l in lines if l["contingency"] and not l["labour"]), 2),
+            "total_cost": round(sum(l["cost"] for l in lines), 2), "total_sell": _num(head.get("bid")) or 0.0}
+
+
 def _key(s) -> str:
     return re.sub(r"[^a-z0-9]", "", str(s or "").lower())
 
@@ -132,7 +178,7 @@ def read(path: str, contract: float | None = None, customer: str | None = None) 
     tabs = []
     for ws in wb.worksheets:
         rows = list(ws.iter_rows(min_row=1, max_row=min(ws.max_row or 0, 400), values_only=True))
-        t = parse_tab(rows)
+        t = parse_tab(rows) or parse_simple(rows)
         if t:
             t["tab"] = ws.title
             tabs.append(t)

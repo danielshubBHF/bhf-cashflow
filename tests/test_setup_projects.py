@@ -76,6 +76,7 @@ def test_netsuite_comes_later_links_job_and_takes_sales_order(monkeypatch):
     monkeypatch.setattr(sp.config, "SHEETS", {"projects": "P", "forecasts": "F"})
     monkeypatch.setattr(sp, "Table", T)
     monkeypatch.setattr(sp, "smartsheet_cards", lambda h: {"BHF26099": ("BHF26099 Test", 1)})
+    monkeypatch.setattr(sp, "sharepoint_cards", lambda known: {})            # never the real SharePoint folders
     monkeypatch.setattr(netsuite, "NetSuite", NS)
     out = sp.run()
     assert "BHF26099: linked to NetSuite job 555" in out
@@ -103,3 +104,21 @@ def test_costing_found_anywhere_in_the_job_folder(tmp_path):
     (tmp_path / "Docs" / "Job Costing v2.xlsx").write_bytes(b"x")
     (tmp_path / "Docs" / "Working Cashflow converted from costing.xlsx").write_bytes(b"x")
     assert sp.find_costing(tmp_path).name == "Job Costing v2.xlsx"
+
+
+def test_short_one_sheet_costing_is_read():
+    """The small-job costing (BHF26006 layout): numbered lines, BHF time at its rate goes to labour."""
+    rows = [[None] * 8, ["Costing for RO flow downgrade"] + [None] * 7, [None] * 8,
+            ["Item No", "Description", "Supplier", "Cost Euro", "Hrs or daily rate", "Labour rate $/hr", "Cost AUD", "Comments"],
+            [1, "Dummy modules supply", "INEX", 15810, None, None, 25928.4, "Ex works"],
+            [2, "Sea Freight", None, None, None, None, 3500, None],
+            [None, None, None, None, None, None, 29428.4, "Sub total Parts"],
+            [3, "Process Engineering", "BHF design evaluation", None, 16, 175, 2800, None],
+            [4, "Labour Hire 2 x fitters", "TBA", None, 4, 1000, 4000, None],
+            [5, "Post system monitoring", None, None, 2, 175, 350, None],
+            [None, None, None, None, None, None, 40000, "Sell price for total delivered"]]
+    c = costing.parse_simple(rows)
+    assert [l["item"] for l in c["lines"]] == ["Dummy modules supply", "Sea Freight", "Process Engineering",
+                                               "Labour Hire 2 x fitters", "Post system monitoring"]
+    assert c["labour"] == 3150                      # BHF engineering + monitoring at the BHF rate; hired fitters are cash out
+    assert c["total_cost"] == 36578.4 and c["head"]["bid"] == 40000

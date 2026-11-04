@@ -72,6 +72,24 @@ def file_name(t: dict, code: str) -> str:
     return f"{safe(t['Doc #'])} - {code} - Customer Invoice.pdf"
 
 
+MAX_PATH = 250      # Windows refuses full paths over 260 characters (long paths are off on the filing PC)
+
+
+def fit(folder: Path, name: str) -> str:
+    """The file name, with its supplier part shortened if the full path would be too long for Windows
+    ("PO006366 - Enkrott - Gestao e Tratamento de Aguas S A - Purchase Order.pdf" under a deep job folder)."""
+    over = len(str(folder / name)) - MAX_PATH
+    if over <= 0:
+        return name
+    if " - " not in name:
+        return name
+    head, rest = name.split(" - ", 1)              # "<doc>" | "<supplier> - Purchase Order.pdf" (the supplier may hold " - ")
+    tail = next((t for t in (" - Purchase Order.pdf", " - Customer Invoice.pdf") if rest.endswith(t)), ".pdf")
+    mid = rest[:len(rest) - len(tail)]
+    mid = mid[:max(len(mid) - over, 8)].rstrip(" -.")
+    return f"{head} - {mid}{tail}"
+
+
 @dataclass
 class Plan:
     row: dict
@@ -155,7 +173,7 @@ def plan_one(t: dict, project_dir: Path, code: str, others: dict[str, list[Path]
         inv = [d for d in offer_dir.iterdir() if d.is_dir() and d.name.lower() == "invoices"]
         folder, how = (inv[0] if inv else offer_dir / "Invoices"), ("invoices folder" if inv else "new folder")
         hits = [f for f in files_under(offer_dir) if norm(t["Doc #"]) in norm(f.name)]
-    p.folder, p.name = folder, file_name(t, code)
+    p.folder, p.name = folder, fit(folder, file_name(t, code))
     own = [f for f in hits if f.name == p.name] or ([folder / p.name] if (folder / p.name).exists() else [])
     if replace_own and own and all(f.name == p.name for f in hits):
         p.outcome, p.matches = "REPLACE", [str(own[0].relative_to(project_dir))]    # only a file this script made
