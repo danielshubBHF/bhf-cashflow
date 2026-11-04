@@ -112,3 +112,25 @@ def test_new_supplier_variation_is_named_like_its_other_lines_and_numbered():
     po = {"type": "PurchOrd", "party": "Enkrott - Gestao e Tratamento de Aguas, S.A", "aud": 5, "trandate": "4/11/2026", "tranid": "PO4"}
     line = auto_variation(pf, po, "PO4", {"Bondalti - main system supply": 100, "Bondalti - VR02 - PO3": 10})
     assert line["Item"] == "Bondalti - VR03 - PO4"          # supplier's own name, next number (closed VR01 counted)
+
+
+def test_variation_numbering_is_universal():
+    from bhf.sync import variation_name
+    enk = "Enkrott - Gestao e Tratamento de Aguas, S.A"
+    # Enkrott is always Bondalti, even where older lines say Enkrott
+    assert variation_name([{"Item": "Enkrott - UF60 system supply", "Party": "Enkrott"}], enk) == "Bondalti - VR01"
+    # one PO covering two variations ("VR02-03"): the next is VR04
+    lines = [{"Item": "Bondalti - VR01 - PO1", "Cost Type": "Variation", "PO / Order #": "PO1"},
+             {"Item": "Bondalti - VR02-03 - PO2", "Cost Type": "Variation", "PO / Order #": "PO2"}]
+    assert variation_name(lines, enk) == "Bondalti - VR04"
+    # other suppliers keep the name their lines use
+    assert variation_name([{"Item": "Welkin - ACF system supply"}], "Welkin Environmental") == "Welkin - VR01"
+
+
+def test_customer_variation_gets_the_same_pattern():
+    from bhf.sync import auto_variation
+    pf = [{"Item": "Main contract", "Direction": "In", "Party": "CCEP", "Amount": 100, "PO / Order #": "PO-7"},
+          {"Item": "Customer - VR01 - PO-8", "Direction": "In", "Party": "CCEP", "Amount": 5, "PO / Order #": "PO-8",
+           "Cost Type": "Variation"}]
+    inv = {"type": "CustInvc", "party": "CCEP", "aud": -3, "trandate": "1/11/2026", "tranid": "INV9"}
+    assert auto_variation(pf, inv, "PO-9", {})["Item"] == "Customer - VR02 - PO-9"

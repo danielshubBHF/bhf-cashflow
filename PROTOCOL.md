@@ -116,7 +116,8 @@ These are agreed with accounts.
 
 ### Changes during the job
 - **Supplier back-charge (money a supplier owes us):** add an outgoing line with Type **Supplier recovery** and the amount owed. It reduces still to pay until the supplier's credit (or an offset bill) is linked to it.
-- **Customer variation:** add an incoming forecast row with the variation PO number, plus its milestones.
+- **Variations (every job, both directions):** one forecast line per variation, named `<Supplier> - VRnn - <PO>` (for example `Bondalti - VR05 - PO006388`, `Customer - VR02 - PO000076879`). One name per company on every job (Enkrott is always Bondalti). A PO that covers two variations is `VR02-03`. The sync adds the line itself, with the next number, when a supplier whose lines are fully ordered issues a new PO or an invoice quotes a new customer PO; check its value and payment stages.
+- **Variation paperwork:** before the PO is raised, save its purchase requisition in its own folder under the supplier, `Variation/VRnn_<short description>`, with the date in the name (`..._PR_041126ds(0).docx`). The filer puts the PO next to the requisition dated that day or up to 3 days before. Keep folder names short: very deep paths make the PO file name shrink to just its number.
 - **New supplier package not in the costing:** add a forecast row. If the PO already exists, link it from Unassigned.
 - **Forecast changes:** edit the Amount. The dashboard shows the original-forecast marker against the actuals either way.
 

@@ -118,9 +118,12 @@ b.para("Also move any expected date that has slipped (forecast lines and milesto
 
 # 7
 b.heading("7.  During the job")
-b.bullet("the sync adds a \"Variation\" line itself when an invoice quotes a new customer PO, or when a supplier whose line is "
-         "fully ordered issues a new PO. Better still, add the variation line (with its PO number) before NetSuite has it.",
-         lead="Variations,")
+b.bullet("one forecast line per variation, named \"<Supplier> - VRnn - <PO>\" (Bondalti - VR05 - PO006388; Customer - "
+         "VR02 - PO...), one name per company on every job. The sync adds the line itself, with the next number, when an "
+         "invoice quotes a new customer PO or a supplier whose lines are fully ordered issues a new PO.", lead="Variations,")
+b.bullet("save the purchase requisition in its own folder under the supplier, Variation/VRnn_<short description>, before "
+         "the PO is raised, with the date in its name (..._PR_041126ds(0).docx). The PO is filed next to it.",
+         lead="Variation folders,")
 b.bullet("add an outgoing line with Type Supplier recovery for money a supplier owes us; it reduces still to pay until "
          "their credit is linked.", lead="Back-charges,")
 b.bullet("edit the Amount or expected date on the dashboard or the cashflow sheet. Sheet edits are saved at the next "

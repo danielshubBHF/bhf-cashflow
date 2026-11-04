@@ -123,14 +123,22 @@ def link_forecast(forecasts: list[dict], d: dict, order: str):
 AUTO_NOTE = "Auto-added by the sync"
 
 
-def variation_name(lines: list[dict], party: str | None) -> str:
-    """"Bondalti - VR06": the name the PM already uses for this supplier (the part before " - " of its lines, so
-    Enkrott's lines stay "Bondalti"), and the next variation number after the POs already on its variation lines."""
+# One name per company on every job, whatever NetSuite calls the vendor.
+SUPPLIER_NAMES = {"enkrott": "Bondalti", "bondalti": "Bondalti"}
+VR_NO = re.compile(r"\bVR0*(\d+)(?:\s*-\s*0*(\d+))?", re.I)
+
+
+def variation_name(lines: list[dict], party: str | None, default: str = "") -> str:
+    """"Bondalti - VR06": the name already used for this party's lines (the part before " - "; Enkrott is always
+    Bondalti), then the next variation number: one past the highest VR on its lines ("VR02-03" counts as 3), or,
+    if none is numbered yet, one past the POs already on its variation lines."""
+    alias = next((v for k, v in SUPPLIER_NAMES.items() if k in vkey(party or "")), None)
     prefixes = [str(f["Item"]).split(" - ")[0].strip() for f in lines if " - " in str(f.get("Item") or "")]
-    prefix = max(set(prefixes), key=prefixes.count) if prefixes else clean_vendor(party or "")
+    prefix = alias or (max(set(prefixes), key=prefixes.count) if prefixes else default or clean_vendor(party or ""))
     var = [f for f in lines if f.get("Cost Type") == "Variation" or re.search(r"variation|\bVR\d", str(f.get("Item")), re.I)]
-    done = {norm(x) for f in var for x in po_list(f)}
-    return f"{prefix} - VR{len(done) + 1:02d}"
+    numbers = [int(m.group(2) or m.group(1)) for f in var for m in [VR_NO.search(str(f.get("Item")))] if m]
+    nxt = max(numbers) + 1 if numbers else len({norm(x) for f in var for x in po_list(f)}) + 1
+    return f"{prefix} - VR{nxt:02d}"
 
 
 def auto_variation(pf: list[dict], d: dict, order: str, ordered: dict) -> dict | None:
@@ -147,7 +155,8 @@ def auto_variation(pf: list[dict], d: dict, order: str, ordered: dict) -> dict |
         if not any(po_list(f) for f in ins):           # contract PO not recorded yet: can't tell a variation apart
             return None
         party = next((f.get("Party") for f in ins if f.get("Party")), None) or d.get("party")
-        return {"Item": f"Variation - customer PO {order}", "Direction": "In", "Cost Type": "Variation", "Party": party,
+        return {"Item": f"{variation_name(ins, None, 'Customer')} - {order}", "Direction": "In", "Cost Type": "Variation",
+                "Party": party,
                 "Amount": amt, "PO / Order #": order, "Expected Date": when,
                 "Notes": f"{AUTO_NOTE} from invoice {d.get('tranid')} on {when}: check the name, value and payment milestones"}
     if d["type"] == "PurchOrd":
