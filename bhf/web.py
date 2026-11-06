@@ -1,5 +1,6 @@
 """Dashboard (Render web service). Overview tab + one tab per live project."""
 import datetime as dt
+import hmac
 import logging
 import os
 import re
@@ -426,3 +427,47 @@ def refresh(request: Request):
 @app.get("/healthz")
 def health():
     return {"ok": True}
+
+
+def _ceo_token_ok(request: Request) -> bool:
+    """Bearer token for the CEO dashboard (a NetSuite Suitelet). No CEO_API_TOKEN set = always refused."""
+    want = os.getenv("CEO_API_TOKEN") or ""
+    scheme, _, given = (request.headers.get("authorization") or "").partition(" ")
+    if not want or scheme.lower() != "bearer" or not given.strip():
+        return False
+    return hmac.compare_digest(given.strip().encode(), want.encode())
+
+
+def _r2(v):
+    return round(float(v), 2) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+@app.get("/api/ceo-summary")
+def ceo_summary(request: Request):
+    """Headline figures for the CEO dashboard, computed by the same calls as the Overview page (/).
+    Token only (Authorization: Bearer CEO_API_TOKEN); it does not use or open the session login."""
+    no_store = {"Cache-Control": "no-store"}
+    if not _ceo_token_ok(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401, headers={**no_store, "WWW-Authenticate": "Bearer"})
+    c = ctx(request, active="overview")
+    pv = pipeline_view(c)
+    pf, bv = c["pf"], c["bv"]
+    t = pf["totals"]
+    p = t.get("position") or {}
+    return JSONResponse({
+        "as_at": c["as_at"],                                      # header "Data as at ..." (latest NetSuite sync on Transactions)
+        "netsuite_at": bv.get("at") if bv else None,              # budget card subtitle "from NetSuite ..."
+        "fy": bv["fy"] if bv else pf["fy_now"],                   # "FYxx vs budget" tab label (same fallback as the page)
+        "live_projects": len(pf["views"]),                        # page bar "N live projects" / Live projects tag
+        "items_need_attention": t["flags"],                       # page bar pill "N items need attention" (after acknowledgements)
+        "projects_flagged": sum(1 for v in pf["views"] if v["flags"]),   # Live projects table: rows with an Attention count
+        "contracts": _r2(t.get("contract")),                      # Cash tab headline "Contracts $..."
+        "gross_margin": _r2(t.get("gm")),                         # Cash tab headline "Gross margin $..."
+        "gross_margin_pct": _r2(t["gm_pct"] * 100) if t.get("contract") else None,   # same headline "..%", as a percentage (23.45 = 23.45%)
+        "net_cash_now": _r2(p.get("now")),                        # Cash tab statement, "Net cash" row "position now" (received - paid)
+        "final_position": _r2(p.get("final")),                    # Cash tab statement, "Net cash" row "final position"
+        "fy_budget": _r2(bv.get("budget_year")) if bv else None,  # FY Systems sales card "Full-year budget"
+        "fy_actual_closed": _r2(bv.get("actual_closed")) if bv else None,   # same card "Actual to end <last closed month>"
+        "still_to_win": _r2(bv.get("gap")) if bv else None,       # same card "Still to win this year"
+        "pipeline_weighted": _r2(pv["this_w"]) if pv else None,   # same card "Pipeline (weighted)" = Pipeline tab "expected (x probability)"
+    }, headers=no_store)

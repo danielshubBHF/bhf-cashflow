@@ -43,6 +43,8 @@ envVarGroups:
         sync: false
       - key: DASHBOARD_PASSWORD
         sync: false
+      - key: CEO_API_TOKEN        # Bearer token the CEO dashboard (NetSuite Suitelet) sends to /api/ceo-summary; unset = endpoint refuses
+        sync: false
       # Which Smartsheet sheets to use. Optional: the defaults in bhf/config.py are the "0. Cashflow Database" sheets.
       # Only set these to point the app somewhere else (e.g. a copy for testing).
       - key: SHEET_PROJECTS
