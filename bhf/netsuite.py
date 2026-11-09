@@ -147,20 +147,54 @@ class NetSuite:
             FROM transaction t
             WHERE t.type = 'PurchOrd' AND t.custbody_project IN ({jobs}) AND t.memo IS NOT NULL""")
 
-    def last_journals(self, accounts: dict) -> dict:
-        """{code: latest Journal date (d/m/yyyy) posting to the project's Unearned or WIP account}."""
-        ids = {str(int(float(a))): c for c, accts in accounts.items() for a in accts if a}
-        if not ids:
-            return {}
-        out = {}
+    def by_memo(self, codes: list, general: list, own: list, select: str, where: str = "", group: str = "") -> list[tuple]:
+        """Journals for projects with no Unearned / WIP account of their own: they post through a shared (general)
+        account, so they're matched to the project by the journal memo starting with the project code
+        ('BHF26006 - Flattening of COGS/Income'). Journals that also touch any project's own account are left out:
+        they're already counted through that account. Returns [(code, row)]; `select` / `where` / `group` add to
+        the query over the journal's posting lines (tal) and header (t), grouped by memo."""
+        want = {key: c for c in codes if (key := code_key(c))}
+        gen = ",".join(str(int(float(a))) for a in general if a)
+        if not want or not gen:
+            return []
+        own_ids = ",".join(sorted({str(int(float(a))) for a in own if a}))
+        skip = (f"AND NOT EXISTS (SELECT 1 FROM transactionaccountingline y WHERE y.transaction = t.id AND y.posting = 'T'"
+                f" AND y.account IN ({own_ids}))") if own_ids else ""
+        likes = " OR ".join(f"UPPER(t.memo) LIKE '{k}%'" for k in want)
+        out = []
         for r in self.query(f"""
-            SELECT tal.account AS acct, MAX(t.trandate) AS last
+            SELECT t.memo AS memo, {select}
             FROM transactionaccountingline tal JOIN transaction t ON t.id = tal.transaction
-            WHERE tal.posting = 'T' AND t.type = 'Journal' AND tal.account IN ({",".join(ids)})
-            GROUP BY tal.account"""):
-            c = ids.get(str(r["acct"]))
-            if c and (c not in out or dmy(r["last"]) > dmy(out[c])):
-                out[c] = r["last"]
+            WHERE tal.posting = 'T' AND t.type = 'Journal' {where}
+              AND EXISTS (SELECT 1 FROM transactionaccountingline x WHERE x.transaction = t.id AND x.posting = 'T'
+                          AND x.account IN ({gen}))
+              AND ({likes}) {skip}
+            GROUP BY t.memo{group}"""):
+            k = memo_owner(r.get("memo"), want)
+            if k:
+                out.append((want[k], r))
+        return out
+
+    def last_journals(self, accounts: dict) -> dict:
+        """{code: latest Journal date (d/m/yyyy) posting to the project's Unearned or WIP account}; for a project
+        missing either account, also journals on the general accounts whose memo starts with its code."""
+        ids = {str(int(float(a))): c for c, accts in accounts.items() for a in accts if a}
+        out = {}
+
+        def later(c, d):
+            if c and (c not in out or dmy(d) > dmy(out[c])):
+                out[c] = d
+
+        if ids:
+            for r in self.query(f"""
+                SELECT tal.account AS acct, MAX(t.trandate) AS last
+                FROM transactionaccountingline tal JOIN transaction t ON t.id = tal.transaction
+                WHERE tal.posting = 'T' AND t.type = 'Journal' AND tal.account IN ({",".join(ids)})
+                GROUP BY tal.account"""):
+                later(ids.get(str(r["acct"])), r["last"])
+        shared = [c for c, accts in accounts.items() if not all(accts)]
+        for c, r in self.by_memo(shared, [config.NS_GENERAL_UNEARNED, config.NS_GENERAL_WIP], list(ids), "MAX(t.trandate) AS last"):
+            later(c, r["last"])
         return out
 
     def part_paid(self, ids: list[int]) -> dict[int, tuple[float, str]]:
@@ -205,11 +239,18 @@ class NetSuite:
         """Systems Sales revenue recognised per project, as it lands in the P&L (407x accounts):
           * monthly journals touching the project's Unearned Income account (their 407x credits; Unearned/WIP
             netting entries carry no 407x line, so they don't count), plus
-          * customer invoices coded to the project that post straight to 407x (no Unearned account used).
+          * customer invoices coded to the project that post straight to 407x (no Unearned account used), plus
+          * for a project with no Unearned account of its own: journals touching the general Unearned Income
+            account (config.NS_GENERAL_UNEARNED) whose memo starts with the project code (their 407x credits).
         projects = [(code, netsuite_job_id, unearned_acct_id or None)]. Returns {code: {'all': x, 'fy': y}}."""
         out = {c: {"all": 0.0, "fy": 0.0} for c, _, _ in projects}
         fy = f"t.trandate >= TO_DATE('{fy_start}', 'YYYY-MM-DD')"
         acct_of = {str(int(float(u))): c for c, _, u in projects if u}
+        for c, r in self.by_memo([c for c, _, u in projects if not u], [config.NS_GENERAL_UNEARNED], list(acct_of),
+                                 f"ROUND(SUM(-tal.amount), 2) AS all_, ROUND(SUM(CASE WHEN {fy} THEN -tal.amount ELSE 0 END), 2) AS fy",
+                                 f"AND {self.SYSTEMS.format(col='tal.account')}"):
+            out[c]["all"] += float(r.get("all_") or 0)
+            out[c]["fy"] += float(r.get("fy") or 0)
         if acct_of:
             for r in self.query(f"""
                 SELECT u.account AS key, ROUND(SUM(-tal.amount), 2) AS all_, ROUND(SUM(CASE WHEN {fy} THEN -tal.amount ELSE 0 END), 2) AS fy
@@ -245,7 +286,9 @@ class NetSuite:
           rev:  Systems Sales (407x) credited by journals touching the project's Unearned account, plus
                 customer invoices whose project lines post straight to 407x
           cost: cost of sales (5xxx) debited by journals touching the project's WIP account, plus supplier
-                bills coded to the project that post straight to 5xxx"""
+                bills coded to the project that post straight to 5xxx
+        A project with no Unearned (WIP) account of its own takes the journals on the general Unearned (WIP)
+        account whose memo starts with its code (see by_memo)."""
         out = {c: {"rev": defaultdict(float), "cost": defaultdict(float)} for c, *_ in projects}
 
         def period(p):
@@ -264,8 +307,17 @@ class NetSuite:
                 GROUP BY u.account, BUILTIN.DF(t.postingperiod)"""):
                 out[accts[str(r["key"])]][side][period(r["p"])] += sign * float(r["amt"] or 0)
 
+        def shared(side, slot: int, general, like: str, sign: int):
+            own = [p[slot] for p in projects if p[slot]]
+            for c, r in self.by_memo([p[0] for p in projects if not p[slot]], [general], own,
+                                     "BUILTIN.DF(t.postingperiod) AS p, ROUND(SUM(tal.amount), 2) AS amt",
+                                     f"AND BUILTIN.DF(tal.account) LIKE '{like}'", ", BUILTIN.DF(t.postingperiod)"):
+                out[c][side][period(r["p"])] += sign * float(r["amt"] or 0)
+
         journals("rev", {str(int(float(u))): c for c, _, u, _ in projects if u}, "407%", -1)
         journals("cost", {str(int(float(w))): c for c, _, _, w in projects if w}, "5%", 1)
+        shared("rev", 2, config.NS_GENERAL_UNEARNED, "407%", -1)
+        shared("cost", 3, config.NS_GENERAL_WIP, "5%", 1)
         job_of = {str(int(float(j))): c for c, j, _, _ in projects if j}
         if job_of:
             jobs = ",".join(job_of)
@@ -371,6 +423,21 @@ def amount(doc: dict) -> float:
     if t in ("VendCred", "CustCred"):
         a = -abs(a)
     return round(a, 2)
+
+
+def code_key(code) -> str:
+    """A project code as compared with journal memos: letters and digits, upper case ('BHF26006')."""
+    return re.sub(r"[^A-Za-z0-9]", "", str(code or "")).upper()
+
+
+def memo_owner(memo, keys) -> str | None:
+    """The project code key a journal memo starts with ('BHF26006 - Flattening...' -> 'BHF26006'), or None.
+    A code followed by another digit isn't a match (BHF2600 never claims BHF26006's journal)."""
+    m = str(memo or "").strip().upper()
+    for k in sorted(keys, key=len, reverse=True):
+        if m.startswith(k) and not m[len(k):len(k) + 1].isdigit():
+            return k
+    return None
 
 
 def dmy(d) -> tuple:

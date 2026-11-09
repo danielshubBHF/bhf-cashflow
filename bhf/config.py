@@ -34,6 +34,11 @@ GO_LIVE = os.getenv("GO_LIVE", "2026-10-08")   # NetSuite jobs started before th
 NS_ACCOUNT = os.getenv("NS_ACCOUNT", "5142660")
 NS_RESTLET_SCRIPT = os.getenv("NS_RESTLET_SCRIPT", "customscript_bhf_render_pdf")
 NS_RESTLET_DEPLOY = os.getenv("NS_RESTLET_DEPLOY", "customdeploy_bhf_render_pdf")
+# Shared balance-sheet accounts used by projects with no Unearned / WIP account of their own (BHF26006 Frucor):
+# "2167 General - Unearned Income" and "1157 WIP - General" (NetSuite internal ids). Their flattening journals are
+# matched to the project by the journal memo starting with the project code.
+NS_GENERAL_UNEARNED = os.getenv("NS_GENERAL_UNEARNED", "1160")
+NS_GENERAL_WIP = os.getenv("NS_GENERAL_WIP", "1159")
 
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 CACHE_SECONDS = int(os.getenv("CACHE_SECONDS", "300"))

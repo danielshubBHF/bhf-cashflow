@@ -857,14 +857,29 @@ def fy_months(fy: str) -> list[str]:
     return [f"{MONTHS[m - 1]} {y - 1 if m >= 7 else y}" for m in (7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6)]
 
 
+def capped_months(by_month: dict, cap: float | None, since: str) -> dict:
+    """A project's formula revenue by month ('YYYY-MM') from `since` on, filled in month order until `cap` (its
+    contract still to recognise) is used up; later months get the remainder, then nothing. cap None = no cap."""
+    out, left = {}, cap
+    for m in sorted(k for k in by_month if k >= since):
+        a = by_month[m]
+        if left is not None:
+            a = max(0.0, min(a, left))
+            left -= a
+        out[m] = round(a, 2)
+    return out
+
+
 def budget_view(b: dict | None, views: list, today: str, scheduled: dict | None = None,
-                formula_by_month: dict | None = None) -> dict | None:
+                formula_by_month: dict | None = None, formula_by_project: dict | None = None) -> dict | None:
     """Budget vs actual for the year, and how much of the rest is already won.
 
     actual        = Systems Sales revenue recognised in the P&L (NetSuite posting periods)
     closed months = months before the current one; the current month is shown separately (part month)
     secured       = contract value of live projects not yet recognised (could slip past 30 June)
-    outlook       = actual to date + secured;  gap = full-year budget - outlook (needs new work)"""
+    outlook       = actual to date + secured;  gap = full-year budget - outlook (needs new work)
+    scheduled     = {code: rest of the FY by the P&L formula}, capped per project at its contract still to recognise
+    formula_by_project = {code: {'YYYY-MM': formula revenue}} for the chart, capped the same way (month order)"""
     if not b:
         return None
     months = fy_months(b["fy"])
@@ -890,11 +905,26 @@ def budget_view(b: dict | None, views: list, today: str, scheduled: dict | None 
     t["secured"] = round(sum(p["remaining"] for p in projects), 2)
     t["projects_fy"] = round(sum(r["fy"] for r in rec.values()), 2)        # live + complete projects in the app
     t["other_fy"] = round(t["actual_ytd"] - t["projects_fy"], 2)           # Systems sales not on a project here
-    # Rest of the year by the P&L formula (from the current month), else every remaining contract dollar.
+    # Rest of the year by the P&L formula (from the current month), else every remaining contract dollar. The formula
+    # doesn't know what NetSuite has already recognised, so each project's rest is capped at its contract still to
+    # recognise (a fully recognised project adds nothing).
+    if formula_by_project is not None:
+        still = {p["code"]: p["remaining"] for p in projects}
+        agg = {}
+        for code, by_m in formula_by_project.items():
+            for m, a in capped_months(by_m, still.get(code), today[:7]).items():
+                name = f"{MONTHS[int(m[5:7]) - 1]} {m[:4]}"
+                agg[name] = agg.get(name, 0.0) + a
+        for r in rows:
+            r["formula"] = round(agg.get(r["month"], 0.0), 2)
     if scheduled is not None:
         for p in projects:
-            p["scheduled_rest"] = scheduled.get(p["code"], 0.0)
-        t["scheduled_rest"] = round(sum(scheduled.values()), 2)
+            p["scheduled_formula"] = scheduled.get(p["code"], 0.0)
+            p["scheduled_rest"] = round(min(p["scheduled_formula"], p["remaining"]), 2)
+        mine = {p["code"] for p in projects}
+        t["scheduled_formula"] = round(sum(scheduled.values()), 2)
+        t["scheduled_rest"] = round(sum(p["scheduled_rest"] for p in projects)
+                                    + sum(a for c, a in scheduled.items() if c not in mine), 2)
         t["outlook"] = round(t["actual_closed"] + t["scheduled_rest"], 2)
     else:
         t["scheduled_rest"] = None

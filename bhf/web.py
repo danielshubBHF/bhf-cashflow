@@ -112,12 +112,12 @@ def ctx(request, **kw):
         x["last_journal"] = model.nsdate(((b or {}).get("journals") or {}).get(code))
         x["journal_behind"] = bool(x["last_journal"]) and x["last_journal"][:7] < pl.add(today[:7], -1)   # last month's not run
     fy = model.fy_of(today[:7])
-    by_month = {}
-    for x in pls.values():
+    by_project = {}                                # formula revenue by month, per project (capped in budget_view)
+    for code, x in pls.items():
         for r in x["rows"]:
-            name = f"{model.MONTHS[int(r['month'][5:7]) - 1]} {r['month'][:4]}"
-            by_month[name] = by_month.get(name, 0.0) + r["rev"]
-    bv = model.budget_view(b, pf["views"], today, {k: pl.fy_remaining(x, fy, today) for k, x in pls.items()}, by_month)
+            by_project.setdefault(code, {})[r["month"]] = by_project.get(code, {}).get(r["month"], 0.0) + r["rev"]
+    bv = model.budget_view(b, pf["views"], today, {k: pl.fy_remaining(x, fy, today) for k, x in pls.items()},
+                           formula_by_project=by_project)
     return {"request": request, "pf": pf, "bv": bv, "pls": pls, "tabs": [(v["code"], v["name"]) for v in pf["views"]], "n_complete": len(pf["complete"]),
             "user": request.session.get("user"), "demo": store.demo,
             "as_at": "demo data" if store.demo else (synced or "not synced yet"), **kw}
@@ -467,7 +467,7 @@ def ceo_summary(request: Request):
         "net_cash_now": _r2(p.get("now")),                        # Cash tab statement, "Net cash" row "position now" (received - paid)
         "final_position": _r2(p.get("final")),                    # Cash tab statement, "Net cash" row "final position"
         "fy_budget": _r2(bv.get("budget_year")) if bv else None,  # FY Systems sales card "Full-year budget"
-        "fy_actual_closed": _r2(bv.get("actual_closed")) if bv else None,   # same card "Actual to end <last closed month>"
+        "fy_actual_closed": _r2(bv.get("actual_closed")) if bv else None,   # same card "Actual to end of <last closed month>"
         "still_to_win": _r2(bv.get("gap")) if bv else None,       # same card "Still to win this year"
         "pipeline_weighted": _r2(pv["this_w"]) if pv else None,   # same card "Pipeline (weighted)" = Pipeline tab "expected (x probability)"
     }, headers=no_store)

@@ -87,14 +87,15 @@
   <div class="ct-head"><h3>{{ bv.fy }} Systems sales vs budget</h3>
     <span>Revenue recognised in the P&amp;L (accounts 4071–4079) against the NetSuite {{ bv.fy }} budget · AUD ex GST · from NetSuite {{ bv.at }}</span></div>
   {% set last = (bv.rows|selectattr('closed')|list|last) %}
+  {% set upto = 'to end of ' ~ (last.month[:3] if last else '—') %}
   <div class="bud-line">
     <div><small>Full-year budget</small><b>{{ bv.budget_year|money }}</b></div>
-    <div><small>Budget to end {{ last.month[:3] if last else '—' }}</small><b>{{ bv.budget_closed|money }}</b></div>
-    <div><small>Actual to end {{ last.month[:3] if last else '—' }}</small><b>{{ bv.actual_closed|money }}</b>
-      <span class="{{ 'neg' if bv.vs_closed < 0 else 'pos' }}">{{ bv.vs_closed|signed }} · {{ '%.0f'|format(bv.pct_closed * 100) }}% of budget</span></div>
+    <div><small>Budget {{ upto }}</small><b>{{ bv.budget_closed|money }}</b></div>
+    <div><small>Actual {{ upto }}</small><b>{{ bv.actual_closed|money }}</b>
+      <span class="{{ 'neg' if bv.vs_closed < 0 else 'pos' }}">{{ bv.vs_closed|signed }} · {{ '%.0f'|format(bv.pct_closed * 100) }}% of budget {{ upto }}</span></div>
     <div><small>{{ bv.month[:3] }} so far (part month)</small><b>{{ bv.actual_current|money }}</b><span>of {{ bv.budget_current|money }} budget</span></div>
     {% if bv.scheduled_rest is not none %}
-    <div><small>Rest of {{ bv.fy }} by P&amp;L formula</small><b>{{ bv.scheduled_rest|money }}</b><span>live projects, {{ bv.month[:3] }}–Jun · {{ bv.secured|money }} contract still to recognise in all</span></div>
+    <div><small>Rest of {{ bv.fy }} by P&amp;L formula</small><b>{{ bv.scheduled_rest|money }}</b><span>live projects, {{ bv.month[:3] }}–Jun, capped at each project's contract still to recognise · {{ bv.secured|money }} still to recognise in all</span></div>
     <div class="gap"><small>Still to win this year</small><b class="{{ 'neg' if bv.gap > 0 }}">{{ bv.gap|money }}</b><span>budget − actual to end {{ last.month[:3] if last else '' }} − formula for the rest</span></div>
     {% if bv.pipeline_w is defined %}<div><small>Pipeline (weighted)</small><b>{{ bv.pipeline_w|money }}</b><span><a href="#pipeline">open Systems enquiries</a> → {% if bv.gap_after > 0 %}{{ bv.gap_after|money }} still to win after pipeline{% else %}budget covered, {{ (-bv.gap_after)|money }} over{% endif %}</span></div>{% endif %}
     {% else %}
@@ -113,10 +114,10 @@
         <td class="n {{ 'neg' if r.closed and r.actual < r.budget else 'pos' if r.closed else '' }}">{{ (r.actual - r.budget)|signed if r.closed else '' }}</td>
         {% if pipe %}<td class="n">{{ r.pipeline|money if r.pipeline else '' }}</td>{% endif %}</tr>{% endfor %}
       </tbody>
-      <tfoot><tr><td>{{ bv.fy }}</td><td class="n">{{ bv.budget_year|money }}</td><td class="n">{{ bv.actual_ytd|money }}</td><td class="n">{{ bv.vs_closed|signed }}<small>closed months</small></td>{% if pipe %}<td class="n">{{ bv.pipeline_w|money }}</td>{% endif %}</tr></tfoot>
+      <tfoot><tr><td>{{ bv.fy }}</td><td class="n">{{ bv.budget_year|money }}</td><td class="n">{{ bv.actual_ytd|money }}</td><td class="n">{{ bv.vs_closed|signed }}<small>{{ upto }}</small></td>{% if pipe %}<td class="n">{{ bv.pipeline_w|money }}</td>{% endif %}</tr></tfoot>
     </table></div>
     <div class="bud-right"><div class="ct-scroll"><table class="ct bud-proj">
-      <thead><tr><th>Live project</th><th class="n">Contract</th><th class="n">Recognised before {{ bv.fy }}</th><th class="n">{{ bv.fy }} recognised</th>{% if bv.scheduled_rest is not none %}<th class="n">Rest of {{ bv.fy }} (formula)</th>{% endif %}<th class="n">Still to recognise</th></tr></thead>
+      <thead><tr><th>Live project</th><th class="n">Contract</th><th class="n">Recognised before {{ bv.fy }}</th><th class="n">{{ bv.fy }} recognised</th>{% if bv.scheduled_rest is not none %}<th class="n">Rest of {{ bv.fy }} (formula, capped)</th>{% endif %}<th class="n">Still to recognise</th></tr></thead>
       <tbody>
       {% for p in bv.projects %}<tr><td><a href="/p/{{ p.code }}"><b>{{ p.code }}</b> {{ p.name }}</a></td><td class="n">{{ p.contract|money }}</td>
         <td class="n muted">{{ p.before|money }}</td><td class="n"><b>{{ p.fy|money }}</b></td>{% if bv.scheduled_rest is not none %}<td class="n">{{ p.scheduled_rest|money if p.scheduled_rest else '—' }}</td>{% endif %}<td class="n">{{ p.remaining|money if p.remaining else '—' }}</td></tr>{% endfor %}
@@ -132,7 +133,7 @@
     </div>
   </div>
   <script>window.BUDROWS = {{ bv.rows|tojson }};</script>
-  <p class="bud-note">Secured assumes each live project's remaining contract is recognised by 30 June; some may fall into the next year. Recognised = journals releasing each project's Unearned Income into Systems sales, plus invoices posted straight to Systems sales.</p>
+  <p class="bud-note">The % of budget compares closed months only ({{ upto }}); {{ bv.month[:3] }} is a part month, shown on its own and not in the %. Secured assumes each live project's remaining contract is recognised by 30 June; some may fall into the next year. Recognised = journals releasing each project's Unearned Income into Systems sales (for a project with no Unearned account of its own, journals on 2167 General - Unearned Income whose memo starts with its code), plus invoices posted straight to Systems sales.</p>
 </section>
 {% else %}
 <section class="budget"><p class="muted">{{ 'FY budget unavailable: NetSuite could not be reached. Refresh to try again.' }}</p></section>

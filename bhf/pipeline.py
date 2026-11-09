@@ -4,8 +4,9 @@ staged formula as live projects, so the FY budget card can show what the pipelin
 Per enquiry (defaults, each overridable on the Pipeline tab; overrides live in the Cashflow Database's Pipeline sheet,
 never in the enquiries sheet):
   value        EstImated Value $AUD
-  probability  from Likelihood: 1 PO imminent 90%, 2 awaiting approval 70%, 3 in negotiation 50%, 4 in discussion 25%,
-               5 unlikely 5% (the old 0-5 Likelihood column if the new one is blank)
+  probability  from Likelihood: 1 PO imminent 90%, 2 awaiting approval 75%, 3 in negotiation 50%, 4 in discussion 25%,
+               5 unlikely 10% (the same factors as the BD Pipeline, AM KPI and CEO dashboards; the old 0-5
+               Likelihood column if the new one is blank)
   start month  Estimated Order Date if set, else from Estimated Conversion: 0-3 months -> +2, 3-6 -> +5,
                6-12 -> +9, > 12 months -> next July. With neither (most enquiries today), none: the enquiry isn't
                counted until a start month is set on the Pipeline tab.
@@ -19,7 +20,7 @@ ENQ_SHEET = 7290402377781124
 NAME, VALUE, DIVISION, STREAM = "Customer - Opportunity", "EstImated Value $AUD", "BHF Division", "BHF Income Stream"
 LIKELIHOOD, OLD_LIKELIHOOD, CONVERSION, ORDER_DATE = "Likelihood", "Likelihood (0-5)", "Estimated Conversion", "Estimated Order Date "
 LEAD = "Responsible Lead"
-PROB = {"1": 0.9, "2": 0.7, "3": 0.5, "4": 0.25, "5": 0.05}
+PROB = {"1": 0.9, "2": 0.75, "3": 0.5, "4": 0.25, "5": 0.1}       # as the BD Pipeline / AM KPI / CEO dashboards
 OLD_PROB = {"5": 0.75, "4": 0.5, "3": 0.3, "2": 0.15, "1": 0.05, "0": 0.0}   # Likelihood (0-5): 5 = most likely
 AHEAD = {"Converted": 1, "0-3 months": 2, "3-6 months": 5, "6-12 months": 9}
 SHUT = {"Won", "Lost", "Dead"}

@@ -29,6 +29,15 @@ def test_defaults_probability_and_start():
     assert v["rows"][0]["needs_start"] and v["this"] == 0 and v["no_start"] == 1 and v["no_start_value"] == 1000000
 
 
+def test_likelihood_factors_match_the_bd_pipeline_and_ceo_dashboards():
+    # 1 = 90%, 2 = 75%, 3 = 50%, 4 = 25%, 5 = 10% (BD Pipeline / AM KPI / CEO dashboards)
+    got = [pp.default_prob(enq(1, Likelihood=f"{k} - x")) for k in "12345"]
+    assert got == [0.9, 0.75, 0.5, 0.25, 0.1]
+    assert pp.OLD_PROB == {"5": 0.75, "4": 0.5, "3": 0.3, "2": 0.15, "1": 0.05, "0": 0.0}       # old 0-5 column unchanged
+    v = pp.view([enq(1, Likelihood="2 - Awaiting Approval", **{"Estimated Conversion": "0-3 months"})], [], TODAY, "FY27")
+    assert v["rows"][0]["prob"] == 0.75 and v["this_w"] == 525000                       # 700,000 in FY27 x 75%
+
+
 def test_formula_split_and_weighting():
     # $1M starting Dec 26 over 2/2/3/2/2: Dec-Jun (7 months) is stages 1-3 = 70% in FY27, the rest (30%) in FY28
     v = pp.view([enq(1, Likelihood="3 - In Negotiation", **{"Estimated Conversion": "0-3 months"})], [], TODAY, "FY27")

@@ -83,6 +83,28 @@ def test_budget_vs_actual_and_still_to_win():
     assert bv["other_fy"] == 880634 - 363309                                         # sales not on a project in the app
     assert [r["current"] for r in bv["rows"]].index(True) == 3 and budget_view(None, [v], "2026-10-06") is None
 
+def test_rest_of_year_formula_is_capped_at_contract_still_to_recognise():
+    # Live FY27 card on 9 Nov 2026: the formula ignored what NetSuite had already recognised.
+    from bhf.model import budget_view, capped_months
+    P = lambda code, contract: {"code": code, "name": code, "contract": contract}
+    views = [P("BHF26001", 1614700), P("BHF26003", 419480), P("BHF25015", 1523853.5), P("BHF26002", 174000),
+             P("BHF26005", 83018), P("BHF26006", 85897)]
+    rec = {"BHF26001": 1180292, "BHF26003": 419480, "BHF25015": 1523853.5, "BHF26002": 174000, "BHF26005": 83018, "BHF26006": 29401.54}
+    b = {"fy": "FY27", "budget": {"Jul 2026": 6925000}, "actual": {"Jul 2026": 305529.11, "Aug 2026": 278020.5, "Sep 2026": 262019.5,
+                                                                  "Oct 2026": 300268.93},
+         "recognised": {c: {"all": a, "fy": 0.0} for c, a in rec.items()}}
+    formula = {"BHF26001": 573723, "BHF26003": 83896, "BHF25015": 0, "BHF26002": 34800, "BHF26005": 0, "BHF26006": 23661}
+    by_proj = {"BHF26001": {"2026-10": 99, "2026-11": 300000, "2026-12": 273723}, "BHF26003": {"2026-11": 83896}}
+    bv = budget_view(b, views, "2026-11-09", formula, formula_by_project=by_proj)
+    rest = {p["code"]: p["scheduled_rest"] for p in bv["projects"]}
+    assert rest == {"BHF26001": 434408, "BHF26003": 0, "BHF25015": 0, "BHF26002": 0, "BHF26005": 0, "BHF26006": 23661}
+    assert bv["scheduled_formula"] == 716080 and bv["scheduled_rest"] == 458069
+    assert bv["actual_closed"] == 1145838.04 and bv["gap"] == round(6925000 - 1145838.04 - 458069, 2)    # 5,321,093
+    chart = {r["month"]: r["formula"] for r in bv["rows"]}                     # chart line capped the same way, in month order
+    assert chart["Oct 2026"] == 0 and chart["Nov 2026"] == 300000 and chart["Dec 2026"] == 134408
+    assert capped_months({"2026-12": 5, "2026-11": 10}, None, "2026-11") == {"2026-11": 10, "2026-12": 5}
+
+
 def test_breakdown_adds_up_on_every_line():
     for l in v["lines_out"] + v["lines_in"]:
         if not l.get("unassigned"):
